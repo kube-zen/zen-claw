@@ -9,16 +9,22 @@ import (
 	"github.com/neves/zen-claw/internal/ai"
 )
 
+// AICaller interface for making AI calls
+// This abstracts away whether we call AI directly or through gateway
+type AICaller interface {
+	Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error)
+}
+
 // LightAgent is a minimal agent focused only on tool execution
-// No event system, no presentation logic, just pure tool chaining
+// Uses AICaller interface for AI communication
 type LightAgent struct {
-	provider ai.Provider
+	aiCaller AICaller
 	tools    map[string]Tool
 	maxSteps int
 }
 
 // NewLightAgent creates a new lightweight agent
-func NewLightAgent(provider ai.Provider, tools []Tool, maxSteps int) *LightAgent {
+func NewLightAgent(aiCaller AICaller, tools []Tool, maxSteps int) *LightAgent {
 	// Convert tools to map
 	toolMap := make(map[string]Tool)
 	for _, tool := range tools {
@@ -26,7 +32,7 @@ func NewLightAgent(provider ai.Provider, tools []Tool, maxSteps int) *LightAgent
 	}
 
 	return &LightAgent{
-		provider: provider,
+		aiCaller: aiCaller,
 		tools:    toolMap,
 		maxSteps: maxSteps,
 	}
@@ -92,7 +98,7 @@ func (a *LightAgent) Run(ctx context.Context, session *Session, userInput string
 	return session, "", fmt.Errorf("exceeded maximum steps (%d)", a.maxSteps)
 }
 
-// getAIResponse gets a response from the AI provider with session messages
+// getAIResponse gets a response from the AI caller with session messages
 func (a *LightAgent) getAIResponse(ctx context.Context, session *Session) (*ai.ChatResponse, error) {
 	// Get current messages
 	messages := session.GetMessages()
@@ -102,7 +108,7 @@ func (a *LightAgent) getAIResponse(ctx context.Context, session *Session) (*ai.C
 	
 	// Create chat request
 	req := ai.ChatRequest{
-		Model:       "deepseek-chat", // TODO: Make configurable
+		Model:       "deepseek-chat", // TODO: Make configurable via AICaller
 		Messages:    messages,
 		Tools:       toolDefs,
 		Temperature: 0.7,
@@ -113,7 +119,7 @@ func (a *LightAgent) getAIResponse(ctx context.Context, session *Session) (*ai.C
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	return a.provider.Chat(ctx, req)
+	return a.aiCaller.Chat(ctx, req)
 }
 
 // executeToolCalls executes all tool calls and returns results

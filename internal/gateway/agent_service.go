@@ -2,20 +2,37 @@ package gateway
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"sync"
 	"time"
 
 	"github.com/neves/zen-claw/internal/agent"
+	"github.com/neves/zen-claw/internal/ai"
 	"github.com/neves/zen-claw/internal/config"
-	"github.com/neves/zen-claw/internal/providers"
 )
+
+// GatewayAICaller implements agent.AICaller for gateway
+type GatewayAICaller struct {
+	aiRouter     *AIRouter
+	provider     string
+	model        string
+}
+
+func (c *GatewayAICaller) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
+	// Use provider/model from caller if specified, otherwise use defaults
+	preferredProvider := c.provider
+	if req.Model != "" && req.Model != "default" {
+		// Model might contain provider hint, e.g., "deepseek/deepseek-chat"
+		// For now, use default provider
+	}
+	
+	return c.aiRouter.Chat(ctx, req, preferredProvider)
+}
 
 // AgentService manages agent sessions and tool execution via gateway
 type AgentService struct {
 	config     *config.Config
-	factory    *providers.Factory
+	aiRouter   *AIRouter
 	tools      []agent.Tool
 	sessions   map[string]*agent.Session
 	sessionsMu sync.RWMutex
@@ -23,7 +40,7 @@ type AgentService struct {
 
 // NewAgentService creates a new agent service for the gateway
 func NewAgentService(cfg *config.Config) *AgentService {
-	factory := providers.NewFactory(cfg)
+	aiRouter := NewAIRouter(cfg)
 	
 	// Create tools (working directory will be set per session)
 	tools := []agent.Tool{
@@ -35,7 +52,7 @@ func NewAgentService(cfg *config.Config) *AgentService {
 	
 	return &AgentService{
 		config:   cfg,
-		factory:  factory,
+		aiRouter: aiRouter,
 		tools:    tools,
 		sessions: make(map[string]*agent.Session),
 	}
@@ -81,20 +98,21 @@ func (s *AgentService) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 		modelName = s.config.GetModel(providerName)
 	}
 	
-	// Create AI provider
-	aiProvider, err := s.factory.CreateProvider(providerName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create provider %s: %w", providerName, err)
-	}
-	
 	// Set max steps
 	maxSteps := req.MaxSteps
 	if maxSteps == 0 {
 		maxSteps = 10
 	}
 	
+	// Create AI caller for gateway
+	aiCaller := &GatewayAICaller{
+		aiRouter: s.aiRouter,
+		provider: providerName,
+		model:    modelName,
+	}
+	
 	// Create lightweight agent
-	lightAgent := agent.NewLightAgent(aiProvider, s.tools, maxSteps)
+	lightAgent := agent.NewLightAgent(aiCaller, s.tools, maxSteps)
 	
 	// Run agent
 	startTime := time.Now()
