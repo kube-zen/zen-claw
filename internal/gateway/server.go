@@ -7,52 +7,37 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
 
-	"github.com/neves/zen-claw/internal/ai"
 	"github.com/neves/zen-claw/internal/config"
-	"github.com/neves/zen-claw/internal/providers"
 )
 
 // Server represents the Zen Claw gateway server
 type Server struct {
-	config   *config.Config
-	server   *http.Server
-	mu       sync.RWMutex
-	running  bool
-	pidFile  string
-	sessions map[string]*Session
-}
-
-// Session represents a user session
-type Session struct {
-	ID         string
-	CreatedAt  time.Time
-	LastActive time.Time
-	Messages   []ai.Message
+	config      *config.Config
+	server      *http.Server
+	mu          sync.RWMutex
+	running     bool
+	pidFile     string
+	agentService *AgentService
 }
 
 // NewServer creates a new gateway server
 func NewServer(cfg *config.Config) *Server {
 	srv := &Server{
-		config:   cfg,
-		pidFile:  "/tmp/zen-claw-gateway.pid",
-		sessions: make(map[string]*Session),
+		config:      cfg,
+		pidFile:     "/tmp/zen-claw-gateway.pid",
+		agentService: NewAgentService(cfg),
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", srv.healthHandler)
 	mux.HandleFunc("/chat", srv.chatHandler)
-	mux.HandleFunc("/chat/stream", srv.chatStreamHandler)
 	mux.HandleFunc("/sessions", srv.sessionsHandler)
 	mux.HandleFunc("/sessions/", srv.sessionHandler)
-	mux.HandleFunc("/tools", srv.toolsHandler)
-	mux.HandleFunc("/tools/execute", srv.toolsExecuteHandler)
 	mux.HandleFunc("/", srv.defaultHandler)
 
 	srv.server = &http.Server{
@@ -68,26 +53,26 @@ func (s *Server) Start() error {
 	s.mu.Lock()
 	if s.running {
 		s.mu.Unlock()
-		return fmt.Errorf("gateway already running")
+		return fmt.Errorf("server already running")
 	}
 	s.running = true
 	s.mu.Unlock()
 
 	// Write PID file
 	if err := s.writePID(); err != nil {
-		return fmt.Errorf("failed to write PID file: %w", err)
+		log.Printf("Warning: Failed to write PID file: %v", err)
 	}
 
 	// Start server in goroutine
 	go func() {
 		log.Printf("Starting Zen Claw gateway on %s", s.server.Addr)
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("Server error: %v", err)
+			log.Fatalf("Server failed: %v", err)
 		}
 	}()
 
 	// Wait for shutdown signal
-	s.waitForShutdown()
+	go s.waitForShutdown()
 
 	return nil
 }
@@ -97,7 +82,7 @@ func (s *Server) Stop() error {
 	s.mu.Lock()
 	if !s.running {
 		s.mu.Unlock()
-		return fmt.Errorf("gateway not running")
+		return fmt.Errorf("server not running")
 	}
 	s.running = false
 	s.mu.Unlock()
@@ -106,7 +91,7 @@ func (s *Server) Stop() error {
 	defer cancel()
 
 	if err := s.server.Shutdown(ctx); err != nil {
-		return fmt.Errorf("failed to shutdown server: %w", err)
+		return fmt.Errorf("shutdown failed: %v", err)
 	}
 
 	// Remove PID file
@@ -119,16 +104,13 @@ func (s *Server) Stop() error {
 // Restart restarts the gateway server
 func (s *Server) Restart() error {
 	if err := s.Stop(); err != nil {
-		return fmt.Errorf("failed to stop gateway: %w", err)
+		return err
 	}
-
-	// Small delay before restart
 	time.Sleep(1 * time.Second)
-
 	return s.Start()
 }
 
-// Status returns the gateway status
+// Status returns the server status
 func (s *Server) Status() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -139,37 +121,39 @@ func (s *Server) Status() string {
 	return "stopped"
 }
 
-// waitForShutdown waits for interrupt signals
+// waitForShutdown waits for shutdown signals
 func (s *Server) waitForShutdown() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
 	<-sigChan
+
 	log.Println("Shutdown signal received")
-
-	s.mu.Lock()
-	s.running = false
-	s.mu.Unlock()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	s.server.Shutdown(ctx)
-	os.Remove(s.pidFile)
+	s.Stop()
 }
 
-// writePID writes the process ID to file
+// writePID writes the PID to file
 func (s *Server) writePID() error {
 	pid := os.Getpid()
-	return os.WriteFile(s.pidFile, []byte(fmt.Sprintf("%d", pid)), 0644)
+	return os.WriteFile(s.pidFile, []byte(fmt.Sprintf("%d\n", pid)), 0644)
 }
 
-// HTTP handlers
+// healthHandler handles health checks
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"status":"ok","service":"zen-claw-gateway","version":"0.1.0"}`)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":    "healthy",
+		"timestamp": time.Now().Format(time.RFC3339),
+		"gateway":   "zen-claw",
+		"version":   "0.1.0",
+	})
 }
 
+// chatHandler handles chat requests
 func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -177,381 +161,68 @@ func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse request
-	var req struct {
-		Message   string `json:"message"`
-		Provider  string `json:"provider"`
-		Model     string `json:"model"`
-		SessionID string `json:"session_id"`
-		Stream    bool   `json:"stream"`
-	}
-
+	var req ChatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	if req.Message == "" {
-		http.Error(w, "Message is required", http.StatusBadRequest)
+	if req.UserInput == "" {
+		http.Error(w, "user_input is required", http.StatusBadRequest)
 		return
 	}
 
-	// Get or create session
-	session := s.getOrCreateSession(req.SessionID)
-
-	// Add system message if this is a new session or first message
-	if len(session.Messages) == 0 {
-		session.Messages = append(session.Messages, ai.Message{
-			Role: "system",
-			Content: `You are Zen Claw, a helpful AI assistant with access to tools.
-You can read files, write files, edit files, and execute commands.
-
-CRITICAL TOOL USAGE RULES:
-1. When user asks to "build", "compile", "run", "execute", or "test" something:
-   - FIRST use "list_dir" to check current directory
-   - THEN decide appropriate command
-   - FINALLY use "exec" to run the command
-   
-2. For Go projects: If you see go.mod, use "go build", "go test", or "go run"
-3. For Make projects: If you see Makefile, use "make" or "make build"
-4. For Node.js: If you see package.json, check scripts with "read_file"
-5. For direct commands: If user says "run <command>", use "exec" immediately
-
-6. When user asks to "check", "analyze", "review", or "read codebase":
-   - FIRST use "list_dir" to understand structure
-   - THEN read key files: go.mod, main.go, README.md, key source files
-   - Use MULTIPLE tool calls in one response: list_dir THEN read_file THEN read_file
-   - FINALLY provide analysis and suggestions
-
-7. When user asks for "improvements" or "suggestions":
-   - Analyze the code you've read
-   - Identify issues: architecture, patterns, best practices
-   - Provide specific, actionable suggestions
-
-8. CRITICAL: Make MULTIPLE tool calls in sequence when needed.
-   - Example: list_dir → read_file(go.mod) → read_file(main.go) → read_file(README.md)
-   - Don't stop after one tool call
-   - Chain tool calls together in one response
-
-DIRECT ACTION REQUIRED:
-- "build <project>" → Check directory, then build
-- "run <command>" → Execute command directly
-- "test" → Run tests
-- "compile" → Compile project
-- "check codebase" → List directory, THEN read key files (multiple files)
-- "analyze project" → List directory, THEN read key files (multiple files)
-- "review code" → List directory, THEN read key files (multiple files)
-- "read codebase" → List directory, THEN read key files (multiple files)
-
-Be proactive. Use tools aggressively when asked to perform actions.
-Don't just list directory and stop - take the next logical step.
-If user asks to understand code, READ THE FILES.
-If user asks for improvements, ANALYZE AND SUGGEST.
-MAKE MULTIPLE TOOL CALLS IN ONE RESPONSE WHEN NEEDED.`,
-		})
+	// Set default working directory if not provided
+	if req.WorkingDir == "" {
+		req.WorkingDir = "."
 	}
 
-	// Add user message to session
-	session.Messages = append(session.Messages, ai.Message{
-		Role:    "user",
-		Content: req.Message,
-	})
-
-	// Get provider from request or config default
-	requestedProvider := req.Provider
-	if requestedProvider == "" {
-		requestedProvider = s.config.Default.Provider
-	}
-	
-	// Check if message contains provider override (e.g., "provider: openai")
-	message := req.Message
-	if strings.HasPrefix(strings.ToLower(message), "provider:") {
-		parts := strings.SplitN(message, ":", 2)
-		if len(parts) == 2 {
-			providerFromMessage := strings.TrimSpace(parts[1])
-			// Check if it's a valid provider
-			if providerFromMessage != "" {
-				requestedProvider = providerFromMessage
-				// Remove provider prefix from message
-				message = strings.TrimSpace(strings.TrimPrefix(message, parts[0]+":"))
-				req.Message = message
-			}
-		}
-	}
-
-	// Get model from request or config default
-	model := req.Model
-	if model == "" {
-		model = s.config.GetModel(requestedProvider)
-	}
-
-	// Create AI provider with first-success arbitration
-	factory := providers.NewFactory(s.config)
-
-	// Get available providers
-	availableProviders := factory.ListAvailableProviders()
-	log.Printf("Available providers: %v", availableProviders)
-
-	// If specific provider requested, try it first
-	var providerChain []string
-	if requestedProvider != "" && requestedProvider != "auto" {
-		providerChain = append(providerChain, requestedProvider)
-	}
-
-	// Add cost-optimized fallback chain: deepseek → openai → glm → minimax → qwen
-	costOptimizedChain := []string{"deepseek", "openai", "glm", "minimax", "qwen"}
-	for _, p := range costOptimizedChain {
-		// Check if provider is available and not already in chain
-		available := false
-		for _, avail := range availableProviders {
-			if avail == p {
-				available = true
-				break
-			}
-		}
-		if available && p != requestedProvider {
-			providerChain = append(providerChain, p)
-		}
-	}
-
-	// Always add mock as last resort
-	providerChain = append(providerChain, "mock")
-
-	log.Printf("Provider chain for arbitration: %v", providerChain)
-
-	// Get available tools (needed for chat request)
-	availableTools := s.getAvailableTools()
-
-	// Try each provider until one succeeds
-	var aiProvider ai.Provider
-	var provider string
-	var resp *ai.ChatResponse
-	var err error
-
-	for _, p := range providerChain {
-		provider = p
-		aiProvider, err = factory.CreateProvider(p)
-		if err != nil {
-			log.Printf("Provider %s creation failed: %v, trying next...", p, err)
-			continue
-		}
-
-		// Create chat request for this provider
-		chatReq := ai.ChatRequest{
-			Model:    model,
-			Messages: session.Messages,
-			Tools:    availableTools,
-		}
-
-		// Try to get response from this provider
-		resp, err = aiProvider.Chat(context.Background(), chatReq)
-		if err == nil {
-			log.Printf("Provider %s succeeded", p)
-			
-			// Check if we need to handle tool calls with conversation continuation
-			if len(resp.ToolCalls) > 0 {
-				// Execute all tool calls
-				toolResults := s.executeToolCalls(resp.ToolCalls)
-				
-				// Add tool call messages to session
-				for range resp.ToolCalls {
-					session.Messages = append(session.Messages, ai.Message{
-						Role:    "assistant",
-						Content: "",
-						// Note: We need to store tool call info somehow
-					})
-				}
-				
-				// Add tool results to session
-				for _, result := range toolResults {
-					session.Messages = append(session.Messages, ai.Message{
-						Role:    "tool",
-						Content: result,
-						// Note: We need tool call ID matching
-					})
-				}
-				
-				// If we have tool results, get follow-up response from AI
-				if len(toolResults) > 0 {
-					// Get follow-up response with tool results
-					followUpReq := ai.ChatRequest{
-						Model:    model,
-						Messages: session.Messages,
-						Tools:    availableTools,
-					}
-					
-					followUpResp, followUpErr := aiProvider.Chat(context.Background(), followUpReq)
-					if followUpErr == nil {
-						// Use the follow-up response instead
-						resp = followUpResp
-						log.Printf("Got follow-up response after %d tool calls", len(toolResults))
-					}
-				}
-			}
-			
-			break
-		}
-
-		log.Printf("Provider %s failed: %v, trying next...", p, err)
-	}
-
+	// Process with agent service
+	ctx := r.Context()
+	resp, err := s.agentService.Chat(ctx, req)
 	if err != nil {
-		// All providers failed
-		http.Error(w, fmt.Sprintf("All AI providers failed: %v", err), http.StatusServiceUnavailable)
+		http.Error(w, fmt.Sprintf("Agent service error: %v", err), http.StatusInternalServerError)
 		return
 	}
-
-	// Add assistant response to session
-	session.Messages = append(session.Messages, ai.Message{
-		Role:    "assistant",
-		Content: resp.Content,
-	})
 
 	// Return response
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"response":      resp.Content,
-		"provider":      provider,
-		"model":         model,
-		"session_id":    session.ID,
-		"finish_reason": resp.FinishReason,
-	})
+	json.NewEncoder(w).Encode(resp)
 }
 
-func (s *Server) chatStreamHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Parse request
-	var req struct {
-		Message   string `json:"message"`
-		Provider  string `json:"provider"`
-		Model     string `json:"model"`
-		SessionID string `json:"session_id"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	if req.Message == "" {
-		http.Error(w, "Message is required", http.StatusBadRequest)
-		return
-	}
-
-	// Set headers for Server-Sent Events
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-
-	// Get or create session
-	session := s.getOrCreateSession(req.SessionID)
-
-	// Add user message to session
-	session.Messages = append(session.Messages, ai.Message{
-		Role:    "user",
-		Content: req.Message,
-	})
-
-	// Get provider from request or config default
-	provider := req.Provider
-	if provider == "" {
-		provider = s.config.Default.Provider
-	}
-
-	// Get model from request or config default
-	model := req.Model
-	if model == "" {
-		model = s.config.GetModel(provider)
-	}
-
-	// For now, we'll simulate streaming with mock provider
-	// In a real implementation, we'd stream from the AI provider
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
-		return
-	}
-
-	// Create AI provider
-	factory := providers.NewFactory(s.config)
-	aiProvider, err := factory.CreateProvider(provider)
-	if err != nil {
-		// Fall back to mock provider
-		aiProvider = providers.NewMockProvider(false)
-	}
-
-	// Create chat request
-	chatReq := ai.ChatRequest{
-		Model:    model,
-		Messages: session.Messages,
-	}
-
-	// Get AI response
-	resp, err := aiProvider.Chat(context.Background(), chatReq)
-	if err != nil {
-		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
-		flusher.Flush()
-		return
-	}
-
-	// Simulate streaming by sending response in chunks
-	responseText := resp.Content
-	chunkSize := 20
-	for i := 0; i < len(responseText); i += chunkSize {
-		end := i + chunkSize
-		if end > len(responseText) {
-			end = len(responseText)
-		}
-
-		chunk := responseText[i:end]
-		fmt.Fprintf(w, "data: %s\n\n", jsonEscape(chunk))
-		flusher.Flush()
-
-		// Small delay to simulate streaming
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	// Send completion event
-	fmt.Fprintf(w, "event: done\ndata: {\"finish_reason\":\"%s\"}\n\n", resp.FinishReason)
-	flusher.Flush()
-
-	// Add assistant response to session
-	session.Messages = append(session.Messages, ai.Message{
-		Role:    "assistant",
-		Content: resp.Content,
-	})
-}
-
+// sessionsHandler lists all sessions
 func (s *Server) sessionsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	sessions := make([]map[string]interface{}, 0, len(s.sessions))
-	for _, session := range s.sessions {
-		sessions = append(sessions, map[string]interface{}{
-			"id":            session.ID,
-			"created_at":    session.CreatedAt.Format(time.RFC3339),
-			"last_active":   session.LastActive.Format(time.RFC3339),
-			"message_count": len(session.Messages),
+	// Get sessions from agent service
+	sessions := s.agentService.ListSessions()
+	
+	// Convert to response format
+	sessionList := make([]map[string]interface{}, 0, len(sessions))
+	for _, stats := range sessions {
+		sessionList = append(sessionList, map[string]interface{}{
+			"id":            stats.SessionID,
+			"created_at":    stats.CreatedAt.Format(time.RFC3339),
+			"updated_at":    stats.UpdatedAt.Format(time.RFC3339),
+			"message_count": stats.MessageCount,
+			"user_messages": stats.UserMessages,
+			"assistant_messages": stats.AssistantMessages,
+			"tool_messages": stats.ToolMessages,
+			"working_dir":   stats.WorkingDir,
 		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"sessions": sessions,
-		"count":    len(sessions),
+		"sessions": sessionList,
+		"count":    len(sessionList),
 	})
 }
 
+// sessionHandler handles individual session operations
 func (s *Server) sessionHandler(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.URL.Path[len("/sessions/"):]
 	if sessionID == "" {
@@ -559,431 +230,53 @@ func (s *Server) sessionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.RLock()
-	session, exists := s.sessions[sessionID]
-	s.mu.RUnlock()
+	switch r.Method {
+	case http.MethodGet:
+		// Get session from agent service
+		session, exists := s.agentService.GetSession(sessionID)
+		if !exists {
+			http.Error(w, "Session not found", http.StatusNotFound)
+			return
+		}
 
-	if !exists {
-		http.Error(w, "Session not found", http.StatusNotFound)
-		return
-	}
-
-	if r.Method == http.MethodGet {
-		// Get session details
+		stats := session.GetStats()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"id":          session.ID,
-			"created_at":  session.CreatedAt.Format(time.RFC3339),
-			"last_active": session.LastActive.Format(time.RFC3339),
-			"messages":    session.Messages,
+			"id":            stats.SessionID,
+			"created_at":    stats.CreatedAt.Format(time.RFC3339),
+			"updated_at":    stats.UpdatedAt.Format(time.RFC3339),
+			"message_count": stats.MessageCount,
+			"user_messages": stats.UserMessages,
+			"assistant_messages": stats.AssistantMessages,
+			"tool_messages": stats.ToolMessages,
+			"working_dir":   stats.WorkingDir,
+			"messages":      session.GetMessages(),
 		})
-	} else if r.Method == http.MethodDelete {
-		// Delete session
-		s.mu.Lock()
-		delete(s.sessions, sessionID)
-		s.mu.Unlock()
 
+	case http.MethodDelete:
+		// Delete session via agent service
+		deleted := s.agentService.DeleteSession(sessionID)
+		
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"deleted": true,
+			"deleted": deleted,
 			"id":      sessionID,
 		})
-	} else {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
-}
 
-func (s *Server) toolsHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// List available tools on gateway
-	tools := []map[string]interface{}{
-		{
-			"name":        "exec",
-			"description": "Execute shell command on gateway host",
-			"parameters": map[string]interface{}{
-				"command": map[string]interface{}{
-					"type":        "string",
-					"description": "Shell command to execute",
-				},
-			},
-		},
-		{
-			"name":        "list_dir",
-			"description": "List directory contents on gateway host",
-			"parameters": map[string]interface{}{
-				"path": map[string]interface{}{
-					"type":        "string",
-					"description": "Directory path (default: current directory)",
-					"optional":    true,
-				},
-			},
-		},
-		{
-			"name":        "read_file",
-			"description": "Read file from gateway host",
-			"parameters": map[string]interface{}{
-				"path": map[string]interface{}{
-					"type":        "string",
-					"description": "File path to read",
-				},
-			},
-		},
-		{
-			"name":        "system_info",
-			"description": "Get system information from gateway host",
-			"parameters":  map[string]interface{}{},
-		},
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"tools": tools,
-	})
-}
-
-func (s *Server) toolsExecuteHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req struct {
-		Tool string                 `json:"tool"`
-		Args map[string]interface{} `json:"args"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	if req.Tool == "" {
-		http.Error(w, "Tool name is required", http.StatusBadRequest)
-		return
-	}
-
-	// Execute tool
-	var result interface{}
-	var err error
-
-	switch req.Tool {
-	case "exec":
-		result, err = s.executeCommand(req.Args)
-	case "list_dir":
-		result, err = s.listDirectory(req.Args)
-	case "read_file":
-		result, err = s.readFile(req.Args)
-	case "system_info":
-		result, err = s.getSystemInfo(req.Args)
 	default:
-		http.Error(w, fmt.Sprintf("Unknown tool: %s", req.Tool), http.StatusBadRequest)
-		return
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
-
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Tool execution failed: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"result":  result,
-		"tool":    req.Tool,
-		"success": true,
-	})
 }
 
-func (s *Server) executeCommand(args map[string]interface{}) (interface{}, error) {
-	command, ok := args["command"].(string)
-	if !ok || command == "" {
-		return nil, fmt.Errorf("command is required")
-	}
-
-	// ⚠️ DANGEROUS: Executing arbitrary commands!
-	// In production, you should:
-	// 1. Validate commands
-	// 2. Use allowlists
-	// 3. Run in sandbox
-	// 4. Add timeouts
-	// 5. Log all executions
-
-	cmd := exec.Command("sh", "-c", command)
-	output, err := cmd.CombinedOutput()
-
-	result := map[string]interface{}{
-		"command": command,
-		"output":  string(output),
-	}
-
-	if err != nil {
-		result["error"] = err.Error()
-		result["exit_code"] = cmd.ProcessState.ExitCode()
-	}
-
-	return result, nil
-}
-
-func (s *Server) listDirectory(args map[string]interface{}) (interface{}, error) {
-	path := "."
-	if p, ok := args["path"].(string); ok && p != "" {
-		path = p
-	}
-
-	// Safety: prevent directory traversal
-	if strings.Contains(path, "..") {
-		return nil, fmt.Errorf("directory traversal not allowed")
-	}
-
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return nil, fmt.Errorf("read directory: %w", err)
-	}
-
-	var files []map[string]interface{}
-	for _, entry := range entries {
-		info, _ := entry.Info()
-		files = append(files, map[string]interface{}{
-			"name":     entry.Name(),
-			"is_dir":   entry.IsDir(),
-			"size":     info.Size(),
-			"mode":     info.Mode().String(),
-			"mod_time": info.ModTime().Format(time.RFC3339),
-		})
-	}
-
-	return map[string]interface{}{
-		"path":  path,
-		"files": files,
-	}, nil
-}
-
-func (s *Server) readFile(args map[string]interface{}) (interface{}, error) {
-	path, ok := args["path"].(string)
-	if !ok || path == "" {
-		return nil, fmt.Errorf("path is required")
-	}
-
-	// Safety checks
-	if strings.Contains(path, "..") {
-		return nil, fmt.Errorf("directory traversal not allowed")
-	}
-
-	// Limit file size (1MB)
-	const maxSize = 1 * 1024 * 1024
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, fmt.Errorf("stat file: %w", err)
-	}
-
-	if info.Size() > maxSize {
-		return nil, fmt.Errorf("file too large (%d bytes > %d bytes)", info.Size(), maxSize)
-	}
-
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read file: %w", err)
-	}
-
-	return map[string]interface{}{
-		"path":    path,
-		"content": string(content),
-		"size":    len(content),
-	}, nil
-}
-
-func (s *Server) getSystemInfo(args map[string]interface{}) (interface{}, error) {
-	// Get hostname
-	hostname, _ := os.Hostname()
-
-	// Get current directory
-	cwd, _ := os.Getwd()
-
-	// Get environment info
-	env := os.Environ()
-	// Limit to first 20 env vars for brevity
-	if len(env) > 20 {
-		env = env[:20]
-	}
-
-	return map[string]interface{}{
-		"hostname":    hostname,
-		"current_dir": cwd,
-		"gateway_pid": os.Getpid(),
-		"env_vars":    env,
-		"time":        time.Now().Format(time.RFC3339),
-	}, nil
-}
-
+// defaultHandler shows available endpoints
 func (s *Server) defaultHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 	fmt.Fprintf(w, "Zen Claw Gateway v0.1.0\n")
-	fmt.Fprintf(w, "Endpoints:\n")
+	fmt.Fprintf(w, "Available AI providers: %v\n", s.agentService.GetAvailableProviders())
+	fmt.Fprintf(w, "\nEndpoints:\n")
 	fmt.Fprintf(w, "  GET  /health           - Health check\n")
 	fmt.Fprintf(w, "  POST /chat             - Chat with AI (JSON)\n")
-	fmt.Fprintf(w, "  POST /chat/stream      - Stream chat with SSE\n")
 	fmt.Fprintf(w, "  GET  /sessions         - List sessions\n")
 	fmt.Fprintf(w, "  GET  /sessions/{id}    - Get session\n")
 	fmt.Fprintf(w, "  DELETE /sessions/{id}  - Delete session\n")
-	fmt.Fprintf(w, "  GET  /tools            - List available tools\n")
-	fmt.Fprintf(w, "  POST /tools/execute    - Execute tool on gateway host\n")
-}
-
-// Helper functions
-func (s *Server) getOrCreateSession(sessionID string) *Session {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if sessionID == "" {
-		// Create new session
-		sessionID = generateSessionID()
-	}
-
-	session, exists := s.sessions[sessionID]
-	if !exists {
-		session = &Session{
-			ID:         sessionID,
-			CreatedAt:  time.Now(),
-			LastActive: time.Now(),
-			Messages:   make([]ai.Message, 0),
-		}
-		s.sessions[sessionID] = session
-	} else {
-		session.LastActive = time.Now()
-	}
-
-	return session
-}
-
-func generateSessionID() string {
-	return fmt.Sprintf("sess_%d", time.Now().UnixNano())
-}
-
-func (s *Server) getAvailableTools() []ai.ToolDefinition {
-	return []ai.ToolDefinition{
-		{
-			Name:        "exec",
-			Description: "Execute shell command on gateway host",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"command": map[string]interface{}{
-						"type":        "string",
-						"description": "Shell command to execute",
-					},
-				},
-				"required": []string{"command"},
-			},
-		},
-		{
-			Name:        "list_dir",
-			Description: "List directory contents on gateway host",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"path": map[string]interface{}{
-						"type":        "string",
-						"description": "Directory path (default: current directory)",
-					},
-				},
-			},
-		},
-		{
-			Name:        "read_file",
-			Description: "Read file from gateway host",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"path": map[string]interface{}{
-						"type":        "string",
-						"description": "File path to read",
-					},
-				},
-				"required": []string{"path"},
-			},
-		},
-		{
-			Name:        "system_info",
-			Description: "Get system information from gateway host",
-			Parameters: map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
-			},
-		},
-	}
-}
-
-func (s *Server) executeToolCalls(toolCalls []ai.ToolCall) []string {
-	var results []string
-
-	for _, toolCall := range toolCalls {
-		var result interface{}
-		var err error
-
-		// Log tool call for debugging
-		log.Printf("🔧 Tool call: %s, args: %v", toolCall.Name, toolCall.Args)
-
-		// Handle different argument formats
-		args := s.parseToolArgs(toolCall.Args)
-
-		switch toolCall.Name {
-		case "exec":
-			result, err = s.executeCommand(args)
-		case "list_dir":
-			result, err = s.listDirectory(args)
-		case "read_file":
-			result, err = s.readFile(args)
-		case "system_info":
-			result, err = s.getSystemInfo(args)
-		default:
-			result = fmt.Sprintf("Unknown tool: %s", toolCall.Name)
-		}
-
-		if err != nil {
-			results = append(results, fmt.Sprintf("Tool %s failed: %v", toolCall.Name, err))
-		} else {
-			// Convert result to string
-			if str, ok := result.(string); ok {
-				results = append(results, str)
-			} else if bytes, err := json.Marshal(result); err == nil {
-				results = append(results, string(bytes))
-			} else {
-				results = append(results, fmt.Sprintf("%v", result))
-			}
-		}
-	}
-
-	return results
-}
-
-func (s *Server) parseToolArgs(rawArgs map[string]interface{}) map[string]interface{} {
-	args := make(map[string]interface{})
-
-	// Check for _raw field (JSON string from some AI providers)
-	if rawJSON, ok := rawArgs["_raw"].(string); ok {
-		log.Printf("📝 Parsing raw JSON: %s", rawJSON)
-		var parsedArgs map[string]interface{}
-		if err := json.Unmarshal([]byte(rawJSON), &parsedArgs); err == nil {
-			// Use parsed args
-			for k, v := range parsedArgs {
-				args[k] = v
-			}
-			return args
-		}
-	}
-
-	// Otherwise use args as-is
-	for k, v := range rawArgs {
-		args[k] = v
-	}
-
-	return args
-}
-
-func jsonEscape(s string) string {
-	b, _ := json.Marshal(s)
-	return string(b)
 }
