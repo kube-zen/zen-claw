@@ -803,11 +803,11 @@ func (s *Server) executeToolCalls(toolCalls []ai.ToolCall) []string {
 		var result interface{}
 		var err error
 		
-		// Convert args from map[string]interface{} to what our functions expect
-		args := make(map[string]interface{})
-		for k, v := range toolCall.Args {
-			args[k] = v
-		}
+		// Log tool call for debugging
+		log.Printf("🔧 Tool call: %s, args: %v", toolCall.Name, toolCall.Args)
+		
+		// Handle different argument formats
+		args := s.parseToolArgs(toolCall.Args)
 		
 		switch toolCall.Name {
 		case "exec":
@@ -837,6 +837,30 @@ func (s *Server) executeToolCalls(toolCalls []ai.ToolCall) []string {
 	}
 	
 	return results
+}
+
+func (s *Server) parseToolArgs(rawArgs map[string]interface{}) map[string]interface{} {
+	args := make(map[string]interface{})
+	
+	// Check for _raw field (JSON string from some AI providers)
+	if rawJSON, ok := rawArgs["_raw"].(string); ok {
+		log.Printf("📝 Parsing raw JSON: %s", rawJSON)
+		var parsedArgs map[string]interface{}
+		if err := json.Unmarshal([]byte(rawJSON), &parsedArgs); err == nil {
+			// Use parsed args
+			for k, v := range parsedArgs {
+				args[k] = v
+			}
+			return args
+		}
+	}
+	
+	// Otherwise use args as-is
+	for k, v := range rawArgs {
+		args[k] = v
+	}
+	
+	return args
 }
 
 func jsonEscape(s string) string {
