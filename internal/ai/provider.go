@@ -36,8 +36,9 @@ type ChatResponse struct {
 
 // Message represents a chat message
 type Message struct {
-	Role    string // "system", "user", "assistant", "tool"
-	Content string
+	Role      string    // "system", "user", "assistant", "tool"
+	Content   string
+	ToolCalls []ToolCall // Only for assistant role with tool calls
 }
 
 // ToolDefinition defines a tool that can be called by the AI

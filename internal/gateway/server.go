@@ -346,6 +346,48 @@ MAKE MULTIPLE TOOL CALLS IN ONE RESPONSE WHEN NEEDED.`,
 		resp, err = aiProvider.Chat(context.Background(), chatReq)
 		if err == nil {
 			log.Printf("Provider %s succeeded", p)
+			
+			// Check if we need to handle tool calls with conversation continuation
+			if len(resp.ToolCalls) > 0 {
+				// Execute all tool calls
+				toolResults := s.executeToolCalls(resp.ToolCalls)
+				
+				// Add tool call messages to session
+				for range resp.ToolCalls {
+					session.Messages = append(session.Messages, ai.Message{
+						Role:    "assistant",
+						Content: "",
+						// Note: We need to store tool call info somehow
+					})
+				}
+				
+				// Add tool results to session
+				for _, result := range toolResults {
+					session.Messages = append(session.Messages, ai.Message{
+						Role:    "tool",
+						Content: result,
+						// Note: We need tool call ID matching
+					})
+				}
+				
+				// If we have tool results, get follow-up response from AI
+				if len(toolResults) > 0 {
+					// Get follow-up response with tool results
+					followUpReq := ai.ChatRequest{
+						Model:    model,
+						Messages: session.Messages,
+						Tools:    availableTools,
+					}
+					
+					followUpResp, followUpErr := aiProvider.Chat(context.Background(), followUpReq)
+					if followUpErr == nil {
+						// Use the follow-up response instead
+						resp = followUpResp
+						log.Printf("Got follow-up response after %d tool calls", len(toolResults))
+					}
+				}
+			}
+			
 			break
 		}
 
@@ -356,44 +398,6 @@ MAKE MULTIPLE TOOL CALLS IN ONE RESPONSE WHEN NEEDED.`,
 		// All providers failed
 		http.Error(w, fmt.Sprintf("All AI providers failed: %v", err), http.StatusServiceUnavailable)
 		return
-	}
-
-	// Handle tool calls if any
-	if len(resp.ToolCalls) > 0 {
-		// Execute tool calls
-		toolResults := s.executeToolCalls(resp.ToolCalls)
-
-		// Add tool call messages to session
-		for range resp.ToolCalls {
-			session.Messages = append(session.Messages, ai.Message{
-				Role:    "assistant",
-				Content: "",
-				// Note: We need a way to store tool calls in messages
-			})
-		}
-
-		// Add tool results to session
-		for _, result := range toolResults {
-			session.Messages = append(session.Messages, ai.Message{
-				Role:    "tool",
-				Content: result,
-			})
-		}
-
-		// For now, just return the first tool call result
-		// In a full implementation, we'd send results back to AI for follow-up
-		if len(toolResults) > 0 {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"response":      toolResults[0],
-				"tool_calls":    len(resp.ToolCalls),
-				"provider":      provider,
-				"model":         model,
-				"session_id":    session.ID,
-				"finish_reason": "tool_calls",
-			})
-			return
-		}
 	}
 
 	// Add assistant response to session
