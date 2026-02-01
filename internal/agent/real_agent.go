@@ -383,6 +383,7 @@ func (a *RealAgent) listModels() {
 	fmt.Println("  • qwen2.5-32b")
 	fmt.Println("  • qwen2.5-14b")
 	fmt.Println("  • qwen2.5-7b")
+	fmt.Println("  • qwen3-coder-30b 📚 262K context, $0.216/32K, $0.538/200K")
 	
 	fmt.Println("\n💡 Usage: /models <model-name>")
 	fmt.Println("   Example: /models deepseek-reasoner")

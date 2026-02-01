@@ -180,7 +180,7 @@ func (c *Config) GetModel(provider string) string {
 		if c.Providers.Qwen != nil && c.Providers.Qwen.Model != "" {
 			return c.Providers.Qwen.Model
 		}
-		return "qwen-max"  // Default Qwen model
+		return "qwen3-coder-30b"  // Default Qwen model: 262K context, great for coding
 	default:
 		return c.Default.Model
 	}
