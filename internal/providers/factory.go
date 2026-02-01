@@ -36,82 +36,47 @@ func (f *Factory) CreateProvider(name string) (ai.Provider, error) {
 	}
 
 	switch name {
-	case "openai":
+	case "openai", "deepseek", "glm", "minimax":
+		// All these use OpenAI-compatible API
 		if apiKey == "" {
 			// Try environment variable as fallback
-			apiKey = os.Getenv("OPENAI_API_KEY")
+			envVar := fmt.Sprintf("%s_API_KEY", strings.ToUpper(name))
+			apiKey = os.Getenv(envVar)
 			if apiKey == "" {
-				return nil, fmt.Errorf("OpenAI API key not found. Set in config or OPENAI_API_KEY env")
+				return nil, fmt.Errorf("%s API key not found. Set in config or %s env", name, envVar)
 			}
 		}
 		
-		var baseURL string
-		if f.config.Providers.OpenAI != nil {
-			baseURL = f.config.Providers.OpenAI.BaseURL
+		// Get provider-specific config
+		var providerConfig *config.ProviderConfig
+		switch name {
+		case "openai":
+			providerConfig = f.config.Providers.OpenAI
+		case "deepseek":
+			providerConfig = f.config.Providers.DeepSeek
+		case "glm":
+			providerConfig = f.config.Providers.GLM
+		case "minimax":
+			providerConfig = f.config.Providers.Minimax
 		}
 		
-		return NewOpenAIProvider(ProviderConfig{
-			APIKey:  apiKey,
-			Model:   model,
-			BaseURL: baseURL,
-		})
-
-	case "deepseek":
-		if apiKey == "" {
-			apiKey = os.Getenv("DEEPSEEK_API_KEY")
-			if apiKey == "" {
-				return nil, fmt.Errorf("DeepSeek API key not found. Set in config or DEEPSEEK_API_KEY env")
+		// Build config for the provider
+		config := ProviderConfig{
+			APIKey: apiKey,
+			Model:  model,
+		}
+		
+		if providerConfig != nil {
+			if providerConfig.BaseURL != "" {
+				config.BaseURL = providerConfig.BaseURL
+			}
+			if providerConfig.Model != "" && model == f.config.GetModel(name) {
+				// Use config model if not overridden by command line
+				config.Model = providerConfig.Model
 			}
 		}
 		
-		var baseURL string
-		if f.config.Providers.DeepSeek != nil {
-			baseURL = f.config.Providers.DeepSeek.BaseURL
-		}
-		
-		return NewDeepSeekProvider(ProviderConfig{
-			APIKey:  apiKey,
-			Model:   model,
-			BaseURL: baseURL,
-		})
-
-	case "glm":
-		if apiKey == "" {
-			apiKey = os.Getenv("GLM_API_KEY")
-			if apiKey == "" {
-				return nil, fmt.Errorf("GLM API key not found. Set in config or GLM_API_KEY env")
-			}
-		}
-		
-		var baseURL string
-		if f.config.Providers.GLM != nil {
-			baseURL = f.config.Providers.GLM.BaseURL
-		}
-		
-		return NewGLMProvider(ProviderConfig{
-			APIKey:  apiKey,
-			Model:   model,
-			BaseURL: baseURL,
-		})
-
-	case "minimax":
-		if apiKey == "" {
-			apiKey = os.Getenv("MINIMAX_API_KEY")
-			if apiKey == "" {
-				return nil, fmt.Errorf("Minimax API key not found. Set in config or MINIMAX_API_KEY env")
-			}
-		}
-		
-		var baseURL string
-		if f.config.Providers.Minimax != nil {
-			baseURL = f.config.Providers.Minimax.BaseURL
-		}
-		
-		return NewMinimaxProvider(ProviderConfig{
-			APIKey:  apiKey,
-			Model:   model,
-			BaseURL: baseURL,
-		})
+		return NewOpenAICompatibleProvider(name, config)
 
 	case "mock":
 		// Mock provider for testing (always works)

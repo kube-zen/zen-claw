@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/neves/zen-claw/internal/agent"
 	"github.com/neves/zen-claw/internal/config"
@@ -69,11 +70,28 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	}
 
 	// Determine provider and model
+	// If model is specified, it could be just a model name or provider:model
+	// For simplicity, we treat it as provider name unless it contains a slash
 	providerName := cfg.Default.Provider
+	modelToUse := cfg.GetModel(providerName)
+	
 	if model != "" && model != "default" {
-		// Model can be in format "provider:model" or just "model"
-		providerName = cfg.Default.Provider
-		// Simple parsing - in real implementation, parse provider:model format
+		// Check if it's a provider name (simple, mock, or known provider)
+		if model == "simple" || model == "mock" || 
+		   model == "openai" || model == "deepseek" || 
+		   model == "glm" || model == "minimax" {
+			// It's a provider name
+			providerName = model
+			modelToUse = cfg.GetModel(providerName)
+		} else if strings.Contains(model, "/") {
+			// It's a model name like "deepseek-chat" or "gpt-4o-mini"
+			// Try to guess provider from model name
+			modelToUse = model
+			// Keep default provider
+		} else {
+			// Unknown format, use as model name
+			modelToUse = model
+		}
 	}
 
 	// Create provider factory
@@ -86,12 +104,6 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		fmt.Printf("⚠️  Failed to create provider %s: %v\n", providerName, err)
 		fmt.Println("🔧 Falling back to mock provider")
 		aiProvider = providers.NewMockProvider(true)
-	}
-
-	// Determine model to use
-	modelToUse := cfg.GetModel(providerName)
-	if model != "" && model != "default" {
-		modelToUse = model
 	}
 
 	// Create session

@@ -3,46 +3,79 @@ package providers
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/neves/zen-claw/internal/ai"
 	"github.com/sashabaranov/go-openai"
 )
 
-// GLMProvider implements GLM-4.7 (Zhipu AI) which uses OpenAI-compatible API
-type GLMProvider struct {
+// OpenAICompatibleProvider handles all OpenAI-compatible APIs
+// Supports: OpenAI, DeepSeek, GLM-4.7, Minimax, etc.
+type OpenAICompatibleProvider struct {
 	client *openai.Client
 	config ProviderConfig
+	name   string
 }
 
-func NewGLMProvider(config ProviderConfig) (*GLMProvider, error) {
+// NewOpenAICompatibleProvider creates a provider for any OpenAI-compatible API
+func NewOpenAICompatibleProvider(name string, config ProviderConfig) (*OpenAICompatibleProvider, error) {
 	if config.APIKey == "" {
-		return nil, fmt.Errorf("API key required for GLM")
+		return nil, fmt.Errorf("API key required for %s", name)
 	}
 
-	// GLM uses OpenAI-compatible API with custom endpoint
-	clientConfig := openai.DefaultConfig(config.APIKey)
-	if config.BaseURL != "" {
-		clientConfig.BaseURL = config.BaseURL
-	} else {
-		clientConfig.BaseURL = "https://open.bigmodel.cn/api/paas/v4"
+	// Set default base URLs for known providers
+	if config.BaseURL == "" {
+		switch strings.ToLower(name) {
+		case "openai":
+			config.BaseURL = "https://api.openai.com/v1"
+		case "deepseek":
+			config.BaseURL = "https://api.deepseek.com"
+		case "glm":
+			config.BaseURL = "https://open.bigmodel.cn/api/paas/v4"
+		case "minimax":
+			config.BaseURL = "https://api.minimax.chat/v1"
+		default:
+			// Use OpenAI default if not specified
+			config.BaseURL = "https://api.openai.com/v1"
+		}
 	}
+
+	// Set default models for known providers
+	if config.Model == "" {
+		switch strings.ToLower(name) {
+		case "openai":
+			config.Model = "gpt-4o-mini"
+		case "deepseek":
+			config.Model = "deepseek-chat"
+		case "glm":
+			config.Model = "glm-4.7"
+		case "minimax":
+			config.Model = "minimax-M2.1"
+		default:
+			config.Model = "gpt-4o-mini"
+		}
+	}
+
+	clientConfig := openai.DefaultConfig(config.APIKey)
+	clientConfig.BaseURL = config.BaseURL
 
 	client := openai.NewClientWithConfig(clientConfig)
-	return &GLMProvider{
+	return &OpenAICompatibleProvider{
 		client: client,
 		config: config,
+		name:   name,
 	}, nil
 }
 
-func (p *GLMProvider) Name() string {
-	return "glm"
+func (p *OpenAICompatibleProvider) Name() string {
+	return p.name
 }
 
-func (p *GLMProvider) SupportsTools() bool {
-	return true // GLM-4.7 supports tool calling
+func (p *OpenAICompatibleProvider) SupportsTools() bool {
+	return true // All OpenAI-compatible APIs support tool calling
 }
 
-func (p *GLMProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
+func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
 	// Convert messages to OpenAI format
 	var messages []openai.ChatCompletionMessage
 	for _, msg := range req.Messages {
@@ -70,9 +103,6 @@ func (p *GLMProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatRes
 	if req.Model != "" && req.Model != "default" {
 		model = req.Model
 	}
-	if model == "" {
-		model = "glm-4.7"
-	}
 
 	// Create completion request
 	completionReq := openai.ChatCompletionRequest{
@@ -88,10 +118,20 @@ func (p *GLMProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatRes
 		}
 	}
 
+	// Add temperature if specified
+	if req.Temperature > 0 {
+		completionReq.Temperature = float32(req.Temperature)
+	}
+
+	// Add max tokens if specified
+	if req.MaxTokens > 0 {
+		completionReq.MaxTokens = req.MaxTokens
+	}
+
 	// Make API call
 	resp, err := p.client.CreateChatCompletion(ctx, completionReq)
 	if err != nil {
-		return nil, fmt.Errorf("GLM API error: %w", err)
+		return nil, fmt.Errorf("%s API error: %w", p.name, err)
 	}
 
 	// Convert response
