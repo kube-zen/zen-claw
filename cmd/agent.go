@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/neves/zen-claw/internal/ai"
 	"github.com/neves/zen-claw/internal/agent"
 	"github.com/neves/zen-claw/internal/config"
 	"github.com/neves/zen-claw/internal/providers"
@@ -26,6 +27,8 @@ func newAgentCmd() *cobra.Command {
 	cmd.Flags().Bool("thinking", false, "Enable thinking mode")
 	cmd.Flags().String("task", "", "Task to execute (if not interactive)")
 	cmd.Flags().String("config", "", "Config file path (default: ~/.zen/zen-claw/config.yaml)")
+	cmd.Flags().Bool("gateway", false, "Use gateway instead of direct API calls")
+	cmd.Flags().String("gateway-url", "http://localhost:8080", "Gateway URL (if using gateway)")
 
 	return cmd
 }
@@ -36,6 +39,8 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	thinking, _ := cmd.Flags().GetBool("thinking")
 	task, _ := cmd.Flags().GetString("task")
 	configPath, _ := cmd.Flags().GetString("config")
+	useGateway, _ := cmd.Flags().GetBool("gateway")
+	gatewayURL, _ := cmd.Flags().GetString("gateway-url")
 
 	// Load configuration
 	cfg, err := config.LoadConfig(configPath)
@@ -94,16 +99,26 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create provider factory
-	factory := providers.NewFactory(cfg)
+	var aiProvider ai.Provider
 	
-	// Create AI provider
-	aiProvider, err := factory.CreateProvider(providerName)
-	if err != nil {
-		// If provider fails, fall back to mock
-		fmt.Printf("⚠️  Failed to create provider %s: %v\n", providerName, err)
-		fmt.Println("🔧 Falling back to mock provider")
-		aiProvider = providers.NewMockProvider(true)
+	if useGateway {
+		// Use gateway provider
+		fmt.Printf("🔗 Using gateway at %s\n", gatewayURL)
+		aiProvider = providers.NewGatewayProvider(gatewayURL)
+	} else {
+		// Use direct provider
+		factory := providers.NewFactory(cfg)
+		
+		// Create AI provider
+		provider, err := factory.CreateProvider(providerName)
+		if err != nil {
+			// If provider fails, fall back to mock
+			fmt.Printf("⚠️  Failed to create provider %s: %v\n", providerName, err)
+			fmt.Println("🔧 Falling back to mock provider")
+			aiProvider = providers.NewMockProvider(true)
+		} else {
+			aiProvider = provider
+		}
 	}
 
 	// Create session

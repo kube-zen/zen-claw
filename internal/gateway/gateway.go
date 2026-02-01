@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -216,8 +217,12 @@ func (g *Gateway) chatHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Return response
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"response":"%s","provider":"%s","model":"%s"}`, 
-		resp.Content, provider, model)
+	
+	// Escape JSON string
+	escapedResponse, _ := json.Marshal(resp.Content)
+	
+	fmt.Fprintf(w, `{"response":%s,"provider":"%s","model":"%s"}`, 
+		escapedResponse, provider, model)
 }
 
 func (g *Gateway) defaultHandler(w http.ResponseWriter, r *http.Request) {
