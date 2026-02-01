@@ -55,12 +55,12 @@ func runGatewayStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Create gateway
-	gw := gateway.NewGateway(cfg)
+	// Create gateway server
+	server := gateway.NewServer(cfg)
 
 	// Start gateway
 	fmt.Println("Starting Zen Claw gateway...")
-	if err := gw.Start(); err != nil {
+	if err := server.Start(); err != nil {
 		return fmt.Errorf("failed to start gateway: %w", err)
 	}
 	
@@ -77,12 +77,12 @@ func runGatewayStop(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Create gateway
-	gw := gateway.NewGateway(cfg)
+	// Create gateway server
+	server := gateway.NewServer(cfg)
 
 	// Stop gateway
 	fmt.Println("Stopping Zen Claw gateway...")
-	if err := gw.Stop(); err != nil {
+	if err := server.Stop(); err != nil {
 		return fmt.Errorf("failed to stop gateway: %w", err)
 	}
 	fmt.Println("Gateway stopped")
@@ -99,12 +99,12 @@ func runGatewayRestart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Create gateway
-	gw := gateway.NewGateway(cfg)
+	// Create gateway server
+	server := gateway.NewServer(cfg)
 
 	// Restart gateway
 	fmt.Println("Restarting Zen Claw gateway...")
-	if err := gw.Restart(); err != nil {
+	if err := server.Restart(); err != nil {
 		return fmt.Errorf("failed to restart gateway: %w", err)
 	}
 	return nil
@@ -120,11 +120,11 @@ func runGatewayStatus(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Create gateway
-	gw := gateway.NewGateway(cfg)
+	// Create gateway server
+	server := gateway.NewServer(cfg)
 
 	// Get status
-	status := gw.Status()
+	status := server.Status()
 	fmt.Printf("Gateway status: %s\n", status)
 
 	// Check if PID file exists
