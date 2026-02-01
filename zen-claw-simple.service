@@ -1,0 +1,21 @@
+[Unit]
+Description=Zen Claw Gateway
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=neves
+ExecStart=/home/neves/git/zen-claw/zen-claw gateway start --config /home/neves/.zen/zen-claw/config.yaml
+WorkingDirectory=/home/neves/.zen/zen-claw
+Environment="PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=zen-claw
+
+[Install]
+WantedBy=multi-user.target
