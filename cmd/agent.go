@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/neves/zen-claw/internal/agent"
 	"github.com/neves/zen-claw/internal/config"
@@ -17,48 +18,65 @@ func newAgentCmd() *cobra.Command {
 	var model string
 	var provider string
 	var workingDir string
-	var showEvents bool
+	var sessionID string
+	var showProgress bool
 	var maxSteps int
 	
 	cmd := &cobra.Command{
 		Use:   "agent",
-		Short: "Run AI agent with automatic tool chaining",
-		Long: `Zen Agent - AI agent with automatic multi-step tool execution.
+		Short: "Lightweight AI agent (console → Slack/Telegram compatible)",
+		Long: `Zen Agent - Lightweight AI agent with automatic tool chaining.
 
-Features:
-- Automatic tool chaining: AI makes multiple tool calls, agent executes all
-- Conversation continuation: Tool results fed back to AI for follow-up
-- Session management: Save/load conversations
-- Multi-provider: DeepSeek, OpenAI, GLM, Minimax, Qwen
+Designed for multi-client sessions:
+- Start in console, continue in Slack/Telegram
+- Minimal footprint: Agent only does tool execution
+- Session-based: Save session ID to continue later
+- No baked-in presentation logic
+
+Architecture:
+  Agent (tool execution) ← Session (conversation state)
+       ↑
+  Clients (Console, Slack, Telegram, HTTP)
 
 Examples:
-  zen-claw agent --model deepseek/deepseek-chat "check codebase and suggest improvements"
-  zen-claw agent --provider openai "build this project"
-  zen-claw agent --working-dir ~/myproject "analyze architecture"
-  zen-claw agent --events "show me what's in this directory"`,
+  # Start a new session
+  zen-claw agent "analyze project"
+  
+  # Start with session ID (save for continuing)
+  zen-claw agent --session-id my-task "check codebase"
+  
+  # Show progress in console
+  zen-claw agent --progress "list directory"
+  
+  # Continue session from another client (future):
+  # Use same session ID in Slack/Telegram bot`,
 		Args: cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			runAgent(args[0], model, provider, workingDir, showEvents, maxSteps)
+			runAgent(args[0], model, provider, workingDir, sessionID, showProgress, maxSteps)
 		},
 	}
 	
-	cmd.Flags().StringVar(&model, "model", "", "AI model (e.g., deepseek/deepseek-chat, openai/gpt-4o)")
+	cmd.Flags().StringVar(&model, "model", "", "AI model (e.g., deepseek/deepseek-chat)")
 	cmd.Flags().StringVar(&provider, "provider", "", "AI provider (deepseek, openai, glm, minimax, qwen)")
 	cmd.Flags().StringVar(&workingDir, "working-dir", ".", "Working directory for tools")
-	cmd.Flags().BoolVar(&showEvents, "events", false, "Show real-time events and progress")
+	cmd.Flags().StringVar(&sessionID, "session-id", "", "Session ID (for continuing sessions)")
+	cmd.Flags().BoolVar(&showProgress, "progress", false, "Show progress in console (CLI only)")
 	cmd.Flags().IntVar(&maxSteps, "max-steps", 10, "Maximum tool execution steps")
 	
 	return cmd
 }
 
-func runAgent(task, modelFlag, providerFlag, workingDir string, showEvents bool, maxSteps int) {
-	if showEvents {
-		fmt.Println("🚀 Zen Agent - Real-time Event Display")
+func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int) {
+	if showProgress {
+		fmt.Println("🚀 Zen Agent - Lightweight (with console progress)")
 	} else {
-		fmt.Println("🚀 Zen Agent - Multi-step Tool Execution")
+		fmt.Println("🚀 Zen Agent - Lightweight")
 	}
 	fmt.Println("═" + strings.Repeat("═", 78))
 	fmt.Printf("Task: %s\n", task)
+	if sessionID != "" {
+		fmt.Printf("Session ID: %s (save for continuing in Slack/Telegram)\n", sessionID)
+	}
 	fmt.Printf("Working directory: %s\n", workingDir)
 	
 	// Load config
@@ -79,7 +97,7 @@ func runAgent(task, modelFlag, providerFlag, workingDir string, showEvents bool,
 	}
 	
 	fmt.Printf("Provider: %s, Model: %s\n", providerName, modelName)
-	if showEvents {
+	if showProgress {
 		fmt.Println()
 	}
 	
@@ -98,51 +116,29 @@ func runAgent(task, modelFlag, providerFlag, workingDir string, showEvents bool,
 		agent.NewSystemInfoTool(),
 	}
 	
-	// Create agent
-	var result string
-	var errRun error
+	// Create or load session
+	session := agent.NewSession(sessionID)
+	session.SetWorkingDir(workingDir)
 	
-	if showEvents {
-		// Use enhanced agent with events
-		enhancedAgent := agent.NewEnhancedAgent(agent.Config{
-			Provider:   aiProvider,
-			Tools:      tools,
-			WorkingDir: workingDir,
-			SessionID:  fmt.Sprintf("agent_%s", strings.ReplaceAll(task, " ", "_")),
-			MaxSteps:   maxSteps,
-		})
-		
-		// Subscribe to events for display
-		unsubscribe := enhancedAgent.Subscribe(func(event agent.AgentEvent) {
-			displayEvent(event)
-		})
-		defer unsubscribe()
-		
-		// Run agent
-		ctx := context.Background()
-		if showEvents {
-			fmt.Println("🤖 Starting agent execution...")
-			fmt.Println()
-		}
-		
-		result, errRun = enhancedAgent.Run(ctx, task)
-	} else {
-		// Use basic agent
-		basicAgent := agent.NewAgent(agent.Config{
-			Provider:   aiProvider,
-			Tools:      tools,
-			WorkingDir: workingDir,
-			SessionID:  fmt.Sprintf("agent_%s", strings.ReplaceAll(task, " ", "_")),
-			MaxSteps:   maxSteps,
-		})
-		
-		// Run agent
-		ctx := context.Background()
-		result, errRun = basicAgent.Run(ctx, task)
+	// Create lightweight agent (stateless, session passed as parameter)
+	lightAgent := agent.NewLightAgent(aiProvider, tools, maxSteps)
+	
+	// Run agent
+	ctx := context.Background()
+	if showProgress {
+		fmt.Println("🤖 Starting agent execution...")
+		fmt.Println()
+		fmt.Printf("📡 Session: %s\n", session.ID)
+		fmt.Printf("   Task: %s\n", task)
+		fmt.Println()
 	}
 	
-	if errRun != nil {
-		fmt.Printf("\n❌ Agent execution failed: %v\n", errRun)
+	startTime := time.Now()
+	updatedSession, result, err := lightAgent.Run(ctx, session, task)
+	duration := time.Since(startTime)
+	
+	if err != nil {
+		fmt.Printf("\n❌ Agent execution failed: %v\n", err)
 		os.Exit(1)
 	}
 	
@@ -152,48 +148,20 @@ func runAgent(task, modelFlag, providerFlag, workingDir string, showEvents bool,
 	fmt.Println(strings.Repeat("═", 80))
 	fmt.Println(result)
 	fmt.Println(strings.Repeat("═", 80))
-}
-
-func displayEvent(event agent.AgentEvent) {
-	switch event.Type {
-	case agent.EventAgentStart:
-		data := event.Data.(agent.AgentStartEventData)
-		fmt.Printf("📡 Agent started: %s\n", data.SessionID)
-		fmt.Printf("   Task: %s\n", data.Task)
-		
-	case agent.EventTurnStart:
-		data := event.Data.(agent.TurnStartEventData)
-		fmt.Printf("\n🔄 Turn %d started\n", data.TurnNumber)
-		
-	case agent.EventToolStart:
-		data := event.Data.(agent.ToolStartEventData)
-		fmt.Printf("   🛠️  Executing tool: %s\n", data.ToolName)
-		if len(data.Args) > 0 {
-			fmt.Printf("     Args: %v\n", data.Args)
-		}
-		
-	case agent.EventToolEnd:
-		data := event.Data.(agent.ToolEndEventData)
-		status := "✅"
-		if data.IsError {
-			status = "❌"
-		}
-		fmt.Printf("   %s Tool %s completed (%dms)\n", 
-			status, data.ToolName, data.DurationMs)
-		
-	case agent.EventTurnEnd:
-		data := event.Data.(agent.TurnEndEventData)
-		fmt.Printf("   🔄 Turn %d completed\n", data.TurnNumber)
-		if len(data.ToolResults) > 0 {
-			fmt.Printf("     Tool results: %d\n", len(data.ToolResults))
-		}
-		
-	case agent.EventAgentEnd:
-		data := event.Data.(agent.AgentEndEventData)
-		fmt.Printf("\n🎯 Agent completed: %s\n", data.SessionID)
-		
-	case agent.EventError:
-		data := event.Data.(agent.ErrorEventData)
-		fmt.Printf("\n❌ Error: %s\n", data.Error)
+	
+	// Print session info (important for multi-client)
+	stats := updatedSession.GetStats()
+	fmt.Printf("\n📊 Session Information:\n")
+	fmt.Printf("   Session ID: %s\n", stats.SessionID)
+	fmt.Printf("   Duration: %v\n", duration.Round(time.Millisecond))
+	fmt.Printf("   Messages: %d total\n", stats.MessageCount)
+	fmt.Printf("     - User: %d\n", stats.UserMessages)
+	fmt.Printf("     - Assistant: %d\n", stats.AssistantMessages)
+	fmt.Printf("     - Tool: %d\n", stats.ToolMessages)
+	fmt.Printf("   Working directory: %s\n", stats.WorkingDir)
+	
+	if showProgress {
+		fmt.Printf("\n💡 To continue this session from another client:\n")
+		fmt.Printf("   Use session ID: %s\n", stats.SessionID)
 	}
 }
