@@ -36,7 +36,7 @@ func (f *Factory) CreateProvider(name string) (ai.Provider, error) {
 	}
 
 	switch name {
-	case "openai", "deepseek", "glm", "minimax":
+	case "openai", "deepseek", "glm", "minimax", "qwen":
 		// All these use OpenAI-compatible API
 		if apiKey == "" {
 			// Try environment variable as fallback
@@ -58,6 +58,8 @@ func (f *Factory) CreateProvider(name string) (ai.Provider, error) {
 			providerConfig = f.config.Providers.GLM
 		case "minimax":
 			providerConfig = f.config.Providers.Minimax
+		case "qwen":
+			providerConfig = f.config.Providers.Qwen
 		}
 		
 		// Build config for the provider
@@ -87,7 +89,7 @@ func (f *Factory) CreateProvider(name string) (ai.Provider, error) {
 		return NewSimpleProvider(), nil
 
 	default:
-		return nil, fmt.Errorf("unknown provider: %s. Available: openai, deepseek, glm, minimax, mock, simple", name)
+		return nil, fmt.Errorf("unknown provider: %s. Available: openai, deepseek, glm, minimax, qwen, mock, simple", name)
 	}
 }
 
@@ -112,6 +114,9 @@ func (f *Factory) ListAvailableProviders() []string {
 	}
 	if f.config.GetAPIKey("minimax") != "" || os.Getenv("MINIMAX_API_KEY") != "" {
 		providers = append(providers, "minimax")
+	}
+	if f.config.GetAPIKey("qwen") != "" || os.Getenv("QWEN_API_KEY") != "" {
+		providers = append(providers, "qwen")
 	}
 	
 	return providers

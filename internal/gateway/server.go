@@ -21,20 +21,20 @@ import (
 
 // Server represents the Zen Claw gateway server
 type Server struct {
-	config  *config.Config
-	server  *http.Server
-	mu      sync.RWMutex
-	running bool
-	pidFile string
+	config   *config.Config
+	server   *http.Server
+	mu       sync.RWMutex
+	running  bool
+	pidFile  string
 	sessions map[string]*Session
 }
 
 // Session represents a user session
 type Session struct {
-	ID        string
-	CreatedAt time.Time
+	ID         string
+	CreatedAt  time.Time
 	LastActive time.Time
-	Messages  []ai.Message
+	Messages   []ai.Message
 }
 
 // NewServer creates a new gateway server
@@ -178,11 +178,11 @@ func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Parse request
 	var req struct {
-		Message  string `json:"message"`
-		Provider string `json:"provider"`
-		Model    string `json:"model"`
+		Message   string `json:"message"`
+		Provider  string `json:"provider"`
+		Model     string `json:"model"`
 		SessionID string `json:"session_id"`
-		Stream   bool   `json:"stream"`
+		Stream    bool   `json:"stream"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -197,7 +197,7 @@ func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Get or create session
 	session := s.getOrCreateSession(req.SessionID)
-	
+
 	// Add user message to session
 	session.Messages = append(session.Messages, ai.Message{
 		Role:    "user",
@@ -205,40 +205,104 @@ func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Get provider from request or config default
-	provider := req.Provider
-	if provider == "" {
-		provider = s.config.Default.Provider
+	requestedProvider := req.Provider
+	if requestedProvider == "" {
+		requestedProvider = s.config.Default.Provider
+	}
+	
+	// Check if message contains provider override (e.g., "provider: openai")
+	message := req.Message
+	if strings.HasPrefix(strings.ToLower(message), "provider:") {
+		parts := strings.SplitN(message, ":", 2)
+		if len(parts) == 2 {
+			providerFromMessage := strings.TrimSpace(parts[1])
+			// Check if it's a valid provider
+			if providerFromMessage != "" {
+				requestedProvider = providerFromMessage
+				// Remove provider prefix from message
+				message = strings.TrimSpace(strings.TrimPrefix(message, parts[0]+":"))
+				req.Message = message
+			}
+		}
 	}
 
 	// Get model from request or config default
 	model := req.Model
 	if model == "" {
-		model = s.config.GetModel(provider)
+		model = s.config.GetModel(requestedProvider)
 	}
 
-	// Create AI provider
+	// Create AI provider with first-success arbitration
 	factory := providers.NewFactory(s.config)
-	aiProvider, err := factory.CreateProvider(provider)
-	if err != nil {
-		// Fall back to mock provider
-		log.Printf("Failed to create provider %s: %v, falling back to mock", provider, err)
-		aiProvider = providers.NewMockProvider(false)
+
+	// Get available providers
+	availableProviders := factory.ListAvailableProviders()
+	log.Printf("Available providers: %v", availableProviders)
+
+	// If specific provider requested, try it first
+	var providerChain []string
+	if requestedProvider != "" && requestedProvider != "auto" {
+		providerChain = append(providerChain, requestedProvider)
 	}
 
-	// Get available tools
+	// Add cost-optimized fallback chain: deepseek → openai → glm → minimax → qwen
+	costOptimizedChain := []string{"deepseek", "openai", "glm", "minimax", "qwen"}
+	for _, p := range costOptimizedChain {
+		// Check if provider is available and not already in chain
+		available := false
+		for _, avail := range availableProviders {
+			if avail == p {
+				available = true
+				break
+			}
+		}
+		if available && p != requestedProvider {
+			providerChain = append(providerChain, p)
+		}
+	}
+
+	// Always add mock as last resort
+	providerChain = append(providerChain, "mock")
+
+	log.Printf("Provider chain for arbitration: %v", providerChain)
+
+	// Get available tools (needed for chat request)
 	availableTools := s.getAvailableTools()
-	
-	// Create chat request
-	chatReq := ai.ChatRequest{
-		Model:    model,
-		Messages: session.Messages,
-		Tools:    availableTools,
+
+	// Try each provider until one succeeds
+	var aiProvider ai.Provider
+	var provider string
+	var resp *ai.ChatResponse
+	var err error
+
+	for _, p := range providerChain {
+		provider = p
+		aiProvider, err = factory.CreateProvider(p)
+		if err != nil {
+			log.Printf("Provider %s creation failed: %v, trying next...", p, err)
+			continue
+		}
+
+		// Create chat request for this provider
+		chatReq := ai.ChatRequest{
+			Model:    model,
+			Messages: session.Messages,
+			Tools:    availableTools,
+		}
+
+		// Try to get response from this provider
+		resp, err = aiProvider.Chat(context.Background(), chatReq)
+		if err == nil {
+			log.Printf("Provider %s succeeded", p)
+			break
+		}
+
+		log.Printf("Provider %s failed: %v, trying next...", p, err)
 	}
 
-	// Get AI response
-	resp, err := aiProvider.Chat(context.Background(), chatReq)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("AI processing failed: %v", err), http.StatusInternalServerError)
+		// All providers failed
+		http.Error(w, fmt.Sprintf("All AI providers failed: %v", err), http.StatusServiceUnavailable)
 		return
 	}
 
@@ -246,7 +310,7 @@ func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 	if len(resp.ToolCalls) > 0 {
 		// Execute tool calls
 		toolResults := s.executeToolCalls(resp.ToolCalls)
-		
+
 		// Add tool call messages to session
 		for range resp.ToolCalls {
 			session.Messages = append(session.Messages, ai.Message{
@@ -255,7 +319,7 @@ func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 				// Note: We need a way to store tool calls in messages
 			})
 		}
-		
+
 		// Add tool results to session
 		for _, result := range toolResults {
 			session.Messages = append(session.Messages, ai.Message{
@@ -263,17 +327,17 @@ func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 				Content: result,
 			})
 		}
-		
+
 		// For now, just return the first tool call result
 		// In a full implementation, we'd send results back to AI for follow-up
 		if len(toolResults) > 0 {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"response":   toolResults[0],
-				"tool_calls": len(resp.ToolCalls),
-				"provider":   provider,
-				"model":      model,
-				"session_id": session.ID,
+				"response":      toolResults[0],
+				"tool_calls":    len(resp.ToolCalls),
+				"provider":      provider,
+				"model":         model,
+				"session_id":    session.ID,
 				"finish_reason": "tool_calls",
 			})
 			return
@@ -289,10 +353,10 @@ func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 	// Return response
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"response":   resp.Content,
-		"provider":   provider,
-		"model":      model,
-		"session_id": session.ID,
+		"response":      resp.Content,
+		"provider":      provider,
+		"model":         model,
+		"session_id":    session.ID,
 		"finish_reason": resp.FinishReason,
 	})
 }
@@ -305,9 +369,9 @@ func (s *Server) chatStreamHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Parse request
 	var req struct {
-		Message  string `json:"message"`
-		Provider string `json:"provider"`
-		Model    string `json:"model"`
+		Message   string `json:"message"`
+		Provider  string `json:"provider"`
+		Model     string `json:"model"`
 		SessionID string `json:"session_id"`
 	}
 
@@ -329,7 +393,7 @@ func (s *Server) chatStreamHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Get or create session
 	session := s.getOrCreateSession(req.SessionID)
-	
+
 	// Add user message to session
 	session.Messages = append(session.Messages, ai.Message{
 		Role:    "user",
@@ -386,11 +450,11 @@ func (s *Server) chatStreamHandler(w http.ResponseWriter, r *http.Request) {
 		if end > len(responseText) {
 			end = len(responseText)
 		}
-		
+
 		chunk := responseText[i:end]
 		fmt.Fprintf(w, "data: %s\n\n", jsonEscape(chunk))
 		flusher.Flush()
-		
+
 		// Small delay to simulate streaming
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -418,9 +482,9 @@ func (s *Server) sessionsHandler(w http.ResponseWriter, r *http.Request) {
 	sessions := make([]map[string]interface{}, 0, len(s.sessions))
 	for _, session := range s.sessions {
 		sessions = append(sessions, map[string]interface{}{
-			"id":          session.ID,
-			"created_at":  session.CreatedAt.Format(time.RFC3339),
-			"last_active": session.LastActive.Format(time.RFC3339),
+			"id":            session.ID,
+			"created_at":    session.CreatedAt.Format(time.RFC3339),
+			"last_active":   session.LastActive.Format(time.RFC3339),
 			"message_count": len(session.Messages),
 		})
 	}
@@ -462,7 +526,7 @@ func (s *Server) sessionHandler(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		delete(s.sessions, sessionID)
 		s.mu.Unlock()
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"deleted": true,
@@ -515,7 +579,7 @@ func (s *Server) toolsHandler(w http.ResponseWriter, r *http.Request) {
 		{
 			"name":        "system_info",
 			"description": "Get system information from gateway host",
-			"parameters":   map[string]interface{}{},
+			"parameters":  map[string]interface{}{},
 		},
 	}
 
@@ -571,8 +635,8 @@ func (s *Server) toolsExecuteHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"result": result,
-		"tool":   req.Tool,
+		"result":  result,
+		"tool":    req.Tool,
 		"success": true,
 	})
 }
@@ -590,20 +654,20 @@ func (s *Server) executeCommand(args map[string]interface{}) (interface{}, error
 	// 3. Run in sandbox
 	// 4. Add timeouts
 	// 5. Log all executions
-	
+
 	cmd := exec.Command("sh", "-c", command)
 	output, err := cmd.CombinedOutput()
-	
+
 	result := map[string]interface{}{
 		"command": command,
 		"output":  string(output),
 	}
-	
+
 	if err != nil {
 		result["error"] = err.Error()
 		result["exit_code"] = cmd.ProcessState.ExitCode()
 	}
-	
+
 	return result, nil
 }
 
@@ -627,10 +691,10 @@ func (s *Server) listDirectory(args map[string]interface{}) (interface{}, error)
 	for _, entry := range entries {
 		info, _ := entry.Info()
 		files = append(files, map[string]interface{}{
-			"name":    entry.Name(),
-			"is_dir":  entry.IsDir(),
-			"size":    info.Size(),
-			"mode":    info.Mode().String(),
+			"name":     entry.Name(),
+			"is_dir":   entry.IsDir(),
+			"size":     info.Size(),
+			"mode":     info.Mode().String(),
 			"mod_time": info.ModTime().Format(time.RFC3339),
 		})
 	}
@@ -651,14 +715,14 @@ func (s *Server) readFile(args map[string]interface{}) (interface{}, error) {
 	if strings.Contains(path, "..") {
 		return nil, fmt.Errorf("directory traversal not allowed")
 	}
-	
+
 	// Limit file size (1MB)
 	const maxSize = 1 * 1024 * 1024
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("stat file: %w", err)
 	}
-	
+
 	if info.Size() > maxSize {
 		return nil, fmt.Errorf("file too large (%d bytes > %d bytes)", info.Size(), maxSize)
 	}
@@ -678,10 +742,10 @@ func (s *Server) readFile(args map[string]interface{}) (interface{}, error) {
 func (s *Server) getSystemInfo(args map[string]interface{}) (interface{}, error) {
 	// Get hostname
 	hostname, _ := os.Hostname()
-	
+
 	// Get current directory
 	cwd, _ := os.Getwd()
-	
+
 	// Get environment info
 	env := os.Environ()
 	// Limit to first 20 env vars for brevity
@@ -725,10 +789,10 @@ func (s *Server) getOrCreateSession(sessionID string) *Session {
 	session, exists := s.sessions[sessionID]
 	if !exists {
 		session = &Session{
-			ID:        sessionID,
-			CreatedAt: time.Now(),
+			ID:         sessionID,
+			CreatedAt:  time.Now(),
 			LastActive: time.Now(),
-			Messages:  make([]ai.Message, 0),
+			Messages:   make([]ai.Message, 0),
 		}
 		s.sessions[sessionID] = session
 	} else {
@@ -789,7 +853,7 @@ func (s *Server) getAvailableTools() []ai.ToolDefinition {
 			Name:        "system_info",
 			Description: "Get system information from gateway host",
 			Parameters: map[string]interface{}{
-				"type": "object",
+				"type":       "object",
 				"properties": map[string]interface{}{},
 			},
 		},
@@ -798,17 +862,17 @@ func (s *Server) getAvailableTools() []ai.ToolDefinition {
 
 func (s *Server) executeToolCalls(toolCalls []ai.ToolCall) []string {
 	var results []string
-	
+
 	for _, toolCall := range toolCalls {
 		var result interface{}
 		var err error
-		
+
 		// Log tool call for debugging
 		log.Printf("🔧 Tool call: %s, args: %v", toolCall.Name, toolCall.Args)
-		
+
 		// Handle different argument formats
 		args := s.parseToolArgs(toolCall.Args)
-		
+
 		switch toolCall.Name {
 		case "exec":
 			result, err = s.executeCommand(args)
@@ -821,7 +885,7 @@ func (s *Server) executeToolCalls(toolCalls []ai.ToolCall) []string {
 		default:
 			result = fmt.Sprintf("Unknown tool: %s", toolCall.Name)
 		}
-		
+
 		if err != nil {
 			results = append(results, fmt.Sprintf("Tool %s failed: %v", toolCall.Name, err))
 		} else {
@@ -835,13 +899,13 @@ func (s *Server) executeToolCalls(toolCalls []ai.ToolCall) []string {
 			}
 		}
 	}
-	
+
 	return results
 }
 
 func (s *Server) parseToolArgs(rawArgs map[string]interface{}) map[string]interface{} {
 	args := make(map[string]interface{})
-	
+
 	// Check for _raw field (JSON string from some AI providers)
 	if rawJSON, ok := rawArgs["_raw"].(string); ok {
 		log.Printf("📝 Parsing raw JSON: %s", rawJSON)
@@ -854,12 +918,12 @@ func (s *Server) parseToolArgs(rawArgs map[string]interface{}) map[string]interf
 			return args
 		}
 	}
-	
+
 	// Otherwise use args as-is
 	for k, v := range rawArgs {
 		args[k] = v
 	}
-	
+
 	return args
 }
 

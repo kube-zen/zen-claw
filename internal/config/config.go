@@ -20,6 +20,7 @@ type ProvidersConfig struct {
 	DeepSeek *ProviderConfig `yaml:"deepseek,omitempty"`
 	GLM      *ProviderConfig `yaml:"glm,omitempty"`
 	Minimax  *ProviderConfig `yaml:"minimax,omitempty"`
+	Qwen     *ProviderConfig `yaml:"qwen,omitempty"`
 }
 
 type ProviderConfig struct {
@@ -143,6 +144,10 @@ func (c *Config) GetAPIKey(provider string) string {
 		if c.Providers.Minimax != nil {
 			return c.Providers.Minimax.APIKey
 		}
+	case "qwen":
+		if c.Providers.Qwen != nil {
+			return c.Providers.Qwen.APIKey
+		}
 	}
 
 	return ""
@@ -171,6 +176,11 @@ func (c *Config) GetModel(provider string) string {
 			return c.Providers.Minimax.Model
 		}
 		return "minimax-M2.1"
+	case "qwen":
+		if c.Providers.Qwen != nil && c.Providers.Qwen.Model != "" {
+			return c.Providers.Qwen.Model
+		}
+		return "qwen-max"  // Default Qwen model
 	default:
 		return c.Default.Model
 	}

@@ -374,6 +374,16 @@ func (a *RealAgent) listModels() {
 	fmt.Println("  • abab6.5s")
 	fmt.Println("  • abab6.5")
 	
+	// Qwen models
+	fmt.Println("\nQwen:")
+	fmt.Println("  • qwen-max")
+	fmt.Println("  • qwen-plus")
+	fmt.Println("  • qwen-turbo")
+	fmt.Println("  • qwen2.5-72b")
+	fmt.Println("  • qwen2.5-32b")
+	fmt.Println("  • qwen2.5-14b")
+	fmt.Println("  • qwen2.5-7b")
+	
 	fmt.Println("\n💡 Usage: /models <model-name>")
 	fmt.Println("   Example: /models deepseek-reasoner")
 	fmt.Println("   Note: Model switching requires restart for full effect")

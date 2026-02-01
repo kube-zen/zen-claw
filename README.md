@@ -44,7 +44,28 @@ go build -o zen-claw .
 
 # Manage sessions
 ./zen-claw session list
+
+# Use gateway with arbitration
+./zen-claw gateway start
+./zen-claw agent --gateway
 ```
+
+## Supported AI Providers
+
+Zen Claw supports multiple AI providers with automatic failover:
+
+1. **DeepSeek** (default, cheapest) - `deepseek/deepseek-chat`
+2. **OpenAI** - `openai/gpt-4o`, `openai/gpt-4-turbo`
+3. **GLM** (智谱清言) - `glm/glm-4`, `glm/glm-3-turbo`
+4. **Minimax** - `minimax/abab6.5s`, `minimax/abab6.5`
+5. **Qwen** (Alibaba) - `qwen/qwen-max`, `qwen/qwen-plus`
+6. **Mock** (for testing) - Always works
+
+### Provider Arbitration
+- **Cost-optimized**: Tries cheapest providers first
+- **Automatic failover**: If one provider fails, tries next
+- **User override**: Say `provider: openai` to force specific provider
+- **Consensus voting**: Coming soon (ask multiple providers, take majority vote)
 
 ## Development Philosophy
 
