@@ -1,12 +1,12 @@
 package providers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -68,24 +68,30 @@ func (p *GatewayProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.Cha
 		lastUserMessage = req.Messages[len(req.Messages)-1].Content
 	}
 	
-	// Prepare form data
-	formData := url.Values{}
-	formData.Set("message", lastUserMessage)
-	formData.Set("provider", provider)
+	// Prepare JSON request body
+	reqBody := map[string]interface{}{
+		"message": lastUserMessage,
+		"provider": provider,
+	}
 	if model != "" && model != "default" {
-		formData.Set("model", model)
+		reqBody["model"] = model
+	}
+	
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshal JSON: %w", err)
 	}
 	
 	// Create HTTP request
 	client := &http.Client{Timeout: p.timeout}
 	gatewayURL := fmt.Sprintf("%s/chat", p.baseURL)
 	
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", gatewayURL, strings.NewReader(formData.Encode()))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", gatewayURL, bytes.NewReader(jsonBody))
 	if err != nil {
 		return nil, fmt.Errorf("create HTTP request: %w", err)
 	}
 	
-	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	httpReq.Header.Set("Content-Type", "application/json")
 	
 	// Send request
 	resp, err := client.Do(httpReq)

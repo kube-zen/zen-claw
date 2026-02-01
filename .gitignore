@@ -1,0 +1,49 @@
+# Binaries
+zen-claw
+zen-claw-*
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories
+vendor/
+node_modules/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+/tmp/
+
+# Config files with secrets
+config.yaml
+*.env
+
+# Build artifacts
+dist/
+build/
+
+# Coverage files
+coverage.txt
+coverage.html

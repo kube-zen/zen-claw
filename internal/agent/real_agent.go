@@ -176,7 +176,8 @@ func (a *RealAgent) RunInteractive() error {
 	fmt.Printf("Model: %s\n", a.config.Model)
 	fmt.Printf("Workspace: %s\n", a.config.Workspace)
 	fmt.Printf("Provider: %s\n", a.provider.Name())
-	fmt.Println("Type 'quit' or 'exit' to end, 'help' for commands")
+	fmt.Println("Commands: /exit, /stop, /pause, /resume, /help, /tools, /session")
+	fmt.Println("Type '/exit' to end session")
 	fmt.Println()
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -191,22 +192,41 @@ func (a *RealAgent) RunInteractive() error {
 			continue
 		}
 
-		switch strings.ToLower(input) {
-		case "quit", "exit":
-			fmt.Println("Goodbye!")
-			return nil
-		case "help":
-			printHelp()
-		case "tools":
-			printTools(a.toolMgr)
-		case "session":
-			fmt.Printf("Session ID: %s\n", a.session.ID())
-			fmt.Printf("Messages: %d\n", len(a.session.GetTranscript()))
-		default:
-			// Run as task
-			if err := a.RunTask(input); err != nil {
-				fmt.Printf("Error: %v\n", err)
+		// Check for commands (start with /)
+		if strings.HasPrefix(input, "/") {
+			cmd := strings.ToLower(strings.TrimPrefix(input, "/"))
+			switch cmd {
+			case "exit", "quit":
+				fmt.Println("👋 Goodbye!")
+				return nil
+			case "stop":
+				fmt.Println("⚠️  Stop command received (not yet implemented)")
+				// TODO: Implement cancellation context
+			case "pause":
+				fmt.Println("⏸️  Pause command received (not yet implemented)")
+				// TODO: Implement pausing
+			case "resume":
+				fmt.Println("▶️  Resume command received (not yet implemented)")
+				// TODO: Implement resuming
+			case "help":
+				printHelp()
+			case "tools":
+				printTools(a.toolMgr)
+			case "session":
+				fmt.Printf("📋 Session ID: %s\n", a.session.ID())
+				fmt.Printf("   Messages: %d\n", len(a.session.GetTranscript()))
+				fmt.Printf("   Model: %s\n", a.config.Model)
+				fmt.Printf("   Provider: %s\n", a.provider.Name())
+			default:
+				fmt.Printf("❓ Unknown command: %s\n", input)
+				fmt.Println("   Available: /exit, /stop, /pause, /resume, /help, /tools, /session")
 			}
+			continue
+		}
+
+		// Run as task
+		if err := a.RunTask(input); err != nil {
+			fmt.Printf("❌ Error: %v\n", err)
 		}
 	}
 

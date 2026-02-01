@@ -49,8 +49,6 @@ func NewServer(cfg *config.Config) *Server {
 	mux.HandleFunc("/chat/stream", srv.chatStreamHandler)
 	mux.HandleFunc("/sessions", srv.sessionsHandler)
 	mux.HandleFunc("/sessions/", srv.sessionHandler)
-	mux.HandleFunc("/webhook/slack", srv.slackWebhookHandler)
-	mux.HandleFunc("/webhook/telegram", srv.telegramWebhookHandler)
 	mux.HandleFunc("/", srv.defaultHandler)
 
 	srv.server = &http.Server{
@@ -431,158 +429,6 @@ func (s *Server) sessionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) slackWebhookHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Parse Slack webhook payload
-	var payload struct {
-		Text      string `json:"text"`
-		Channel   string `json:"channel"`
-		User      string `json:"user"`
-		Timestamp string `json:"ts"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	if payload.Text == "" {
-		http.Error(w, "Text is required", http.StatusBadRequest)
-		return
-	}
-
-	// Create session ID from channel + user
-	sessionID := fmt.Sprintf("slack_%s_%s", payload.Channel, payload.User)
-	
-	// Get or create session
-	session := s.getOrCreateSession(sessionID)
-	
-	// Add user message to session
-	session.Messages = append(session.Messages, ai.Message{
-		Role:    "user",
-		Content: payload.Text,
-	})
-
-	// Get AI response
-	provider := s.config.Default.Provider
-	model := s.config.GetModel(provider)
-	
-	factory := providers.NewFactory(s.config)
-	aiProvider, err := factory.CreateProvider(provider)
-	if err != nil {
-		aiProvider = providers.NewMockProvider(false)
-	}
-
-	chatReq := ai.ChatRequest{
-		Model:    model,
-		Messages: session.Messages,
-	}
-
-	resp, err := aiProvider.Chat(context.Background(), chatReq)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("AI processing failed: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Add assistant response to session
-	session.Messages = append(session.Messages, ai.Message{
-		Role:    "assistant",
-		Content: resp.Content,
-	})
-
-	// Return Slack-compatible response
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"response_type": "in_channel",
-		"text":          resp.Content,
-		"channel":       payload.Channel,
-		"ts":            payload.Timestamp,
-	})
-}
-
-func (s *Server) telegramWebhookHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Parse Telegram webhook payload
-	var payload struct {
-		Message struct {
-			Text string `json:"text"`
-			Chat struct {
-				ID int64 `json:"id"`
-			} `json:"chat"`
-			From struct {
-				ID int64 `json:"id"`
-			} `json:"from"`
-			MessageID int `json:"message_id"`
-		} `json:"message"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	if payload.Message.Text == "" {
-		http.Error(w, "Text is required", http.StatusBadRequest)
-		return
-	}
-
-	// Create session ID from chat ID
-	sessionID := fmt.Sprintf("telegram_%d", payload.Message.Chat.ID)
-	
-	// Get or create session
-	session := s.getOrCreateSession(sessionID)
-	
-	// Add user message to session
-	session.Messages = append(session.Messages, ai.Message{
-		Role:    "user",
-		Content: payload.Message.Text,
-	})
-
-	// Get AI response
-	provider := s.config.Default.Provider
-	model := s.config.GetModel(provider)
-	
-	factory := providers.NewFactory(s.config)
-	aiProvider, err := factory.CreateProvider(provider)
-	if err != nil {
-		aiProvider = providers.NewMockProvider(false)
-	}
-
-	chatReq := ai.ChatRequest{
-		Model:    model,
-		Messages: session.Messages,
-	}
-
-	resp, err := aiProvider.Chat(context.Background(), chatReq)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("AI processing failed: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Add assistant response to session
-	session.Messages = append(session.Messages, ai.Message{
-		Role:    "assistant",
-		Content: resp.Content,
-	})
-
-	// Return Telegram-compatible response
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"method": "sendMessage",
-		"chat_id": payload.Message.Chat.ID,
-		"text":    resp.Content,
-		"reply_to_message_id": payload.Message.MessageID,
-	})
-}
-
 func (s *Server) defaultHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 	fmt.Fprintf(w, "Zen Claw Gateway v0.1.0\n")
@@ -593,8 +439,6 @@ func (s *Server) defaultHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "  GET  /sessions         - List sessions\n")
 	fmt.Fprintf(w, "  GET  /sessions/{id}    - Get session\n")
 	fmt.Fprintf(w, "  DELETE /sessions/{id}  - Delete session\n")
-	fmt.Fprintf(w, "  POST /webhook/slack    - Slack webhook\n")
-	fmt.Fprintf(w, "  POST /webhook/telegram - Telegram webhook\n")
 }
 
 // Helper functions
