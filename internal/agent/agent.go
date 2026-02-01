@@ -108,6 +108,8 @@ func printHelp() {
 	fmt.Println("  /sessions- List all saved sessions")
 	fmt.Println("  /skills  - List available skills")
 	fmt.Println("  /status  - Show system status")
+	fmt.Println("  /spawn   - Spawn sub-agent for task")
+	fmt.Println("  /models  - List or switch models")
 	fmt.Println("  <task>   - Run a task (no prefix needed)")
 	fmt.Println()
 }

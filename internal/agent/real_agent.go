@@ -106,7 +106,25 @@ func (a *RealAgent) processWithAIWithContext(ctx context.Context, input string) 
 		Role: "system",
 		Content: `You are Zen Claw, a helpful AI assistant with access to tools.
 You can read files, write files, edit files, and execute commands.
-Be concise and helpful. Use tools when needed.`,
+
+CRITICAL TOOL USAGE RULES:
+1. When user asks to "build", "compile", "run", "execute", or "test" something:
+   - FIRST use "list_dir" to check current directory
+   - THEN decide appropriate command
+   - FINALLY use "exec" to run the command
+   
+2. For Go projects: If you see go.mod, use "go build", "go test", or "go run"
+3. For Make projects: If you see Makefile, use "make" or "make build"
+4. For Node.js: If you see package.json, check scripts with "read_file"
+5. For direct commands: If user says "run <command>", use "exec" immediately
+
+DIRECT ACTION REQUIRED:
+- "build <project>" → Check directory, then build
+- "run <command>" → Execute command directly
+- "test" → Run tests
+- "compile" → Compile project
+
+Be proactive. Use tools aggressively when asked to perform actions.`,
 	})
 	
 	// Add transcript history (last 10 messages)
@@ -330,6 +348,81 @@ func (a *RealAgent) printToolResult(result map[string]interface{}) {
 	fmt.Println()
 }
 
+func (a *RealAgent) listModels() {
+	fmt.Println("🤖 Available Models")
+	fmt.Println("─" + strings.Repeat("─", 40))
+	
+	// DeepSeek models
+	fmt.Println("DeepSeek:")
+	fmt.Println("  • deepseek-chat (default)")
+	fmt.Println("  • deepseek-reasoner")
+	fmt.Println("  • deepseek-coder")
+	
+	// OpenAI models (if configured)
+	fmt.Println("\nOpenAI:")
+	fmt.Println("  • gpt-4o")
+	fmt.Println("  • gpt-4-turbo")
+	fmt.Println("  • gpt-3.5-turbo")
+	
+	// GLM models
+	fmt.Println("\nGLM:")
+	fmt.Println("  • glm-4")
+	fmt.Println("  • glm-3-turbo")
+	
+	// Minimax models
+	fmt.Println("\nMinimax:")
+	fmt.Println("  • abab6.5s")
+	fmt.Println("  • abab6.5")
+	
+	fmt.Println("\n💡 Usage: /models <model-name>")
+	fmt.Println("   Example: /models deepseek-reasoner")
+	fmt.Println("   Note: Model switching requires restart for full effect")
+	fmt.Println()
+}
+
+func (a *RealAgent) switchModel(modelName string) {
+	fmt.Printf("🔄 Switching to model: %s\n", modelName)
+	
+	// Update config
+	a.config.Model = modelName
+	
+	// Update session config
+	a.session.Save() // Save current session with old model
+	
+	// Note: For full effect, we'd need to recreate the provider
+	// For now, just update the config
+	fmt.Println("✅ Model updated in config")
+	fmt.Println("⚠️  Note: Full model switch requires agent restart")
+	fmt.Printf("   Current model: %s\n", a.config.Model)
+	fmt.Println()
+}
+
+func (a *RealAgent) spawnSubAgent(task string) {
+	fmt.Printf("👶 Spawning sub-agent for task: %s\n", task)
+	
+	// In a real implementation, we would:
+	// 1. Create a new agent process
+	// 2. Pass the task as argument
+	// 3. Capture output
+	// 4. Return results
+	
+	// For now, just show what we would do
+	fmt.Println("🚧 Sub-agent spawning not fully implemented yet")
+	fmt.Println("   This would run: zen-claw agent --task \"" + task + "\"")
+	fmt.Println("   In background with isolated session")
+	fmt.Println()
+	
+	// Actually, let me implement a simple version
+	// that runs the task in the current agent but marks it as sub-task
+	fmt.Println("📝 Running task in current agent (simulated sub-agent):")
+	fmt.Println()
+	
+	// Run the task directly
+	if err := a.RunTask(task); err != nil {
+		fmt.Printf("❌ Sub-agent failed: %v\n", err)
+	}
+}
+
 func (a *RealAgent) listSkills() {
 	if a.skillMgr == nil {
 		fmt.Println("⚠️  Skills system not initialized")
@@ -509,7 +602,10 @@ func (a *RealAgent) RunInteractive() error {
 
 		// Check for commands (start with /)
 		if strings.HasPrefix(input, "/") {
-			cmd := strings.ToLower(strings.TrimPrefix(input, "/"))
+			parts := strings.Fields(input)
+			cmd := strings.ToLower(strings.TrimPrefix(parts[0], "/"))
+			args := parts[1:]
+			
 			switch cmd {
 			case "exit", "quit":
 				// Cancel any running task
@@ -547,9 +643,24 @@ func (a *RealAgent) RunInteractive() error {
 				a.listSkills()
 			case "status":
 				a.printStatus()
+			case "spawn":
+				if len(args) > 1 {
+					task := strings.Join(args[1:], " ")
+					a.spawnSubAgent(task)
+				} else {
+					fmt.Println("❓ Usage: /spawn <task>")
+					fmt.Println("   Example: /spawn Review the README file")
+				}
+			case "models":
+				if len(args) > 0 {
+					modelName := strings.Join(args, " ")
+					a.switchModel(modelName)
+				} else {
+					a.listModels()
+				}
 			default:
 				fmt.Printf("❓ Unknown command: %s\n", input)
-				fmt.Println("   Available: /exit, /stop, /pause, /resume, /help, /tools, /session, /sessions, /skills, /status")
+				fmt.Println("   Available: /exit, /stop, /pause, /resume, /help, /tools, /session, /sessions, /skills, /status, /spawn, /models")
 			}
 			continue
 		}
