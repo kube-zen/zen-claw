@@ -181,23 +181,156 @@ func (a *RealAgent) handleToolCalls(toolCalls []ai.ToolCall) (string, error) {
 }
 
 func (a *RealAgent) printFormattedResponse(response string) {
-	// Try to parse as JSON first
-	var jsonObj interface{}
+	// Try to parse as JSON first (for tool results)
+	var jsonObj map[string]interface{}
 	if err := json.Unmarshal([]byte(response), &jsonObj); err == nil {
-		// It's JSON, pretty print it
-		fmt.Println("🤖 Tool result:")
-		prettyJSON, err := json.MarshalIndent(jsonObj, "  ", "  ")
-		if err != nil {
-			fmt.Printf("🤖 %s\n\n", response)
-			return
+		// It's JSON from a tool call
+		a.printToolResult(jsonObj)
+		return
+	}
+	
+	// Not JSON, print as-is (regular AI response)
+	fmt.Printf("🤖 %s\n\n", response)
+}
+
+func (a *RealAgent) printToolResult(result map[string]interface{}) {
+	// Handle different tool result formats
+	
+	// exec tool result
+	if command, ok := result["command"].(string); ok {
+		output, _ := result["output"].(string)
+		errorMsg, hasError := result["error"].(string)
+		exitCode, hasExitCode := result["exit_code"].(float64)
+		
+		fmt.Println("🔧 Command executed:")
+		fmt.Printf("   $ %s\n", command)
+		
+		if output != "" {
+			fmt.Println("\n📤 Output:")
+			fmt.Print(output)
+			if !strings.HasSuffix(output, "\n") {
+				fmt.Println()
+			}
 		}
-		fmt.Println(string(prettyJSON))
+		
+		if hasError {
+			fmt.Printf("❌ Error: %s\n", errorMsg)
+		}
+		
+		if hasExitCode {
+			fmt.Printf("📊 Exit code: %.0f\n", exitCode)
+		}
+		
 		fmt.Println()
 		return
 	}
 	
-	// Not JSON, print as-is
-	fmt.Printf("🤖 %s\n\n", response)
+	// list_dir tool result
+	if path, ok := result["path"].(string); ok {
+		if files, ok := result["files"].([]interface{}); ok {
+			fmt.Printf("📁 Directory: %s\n\n", path)
+			for i, file := range files {
+				if fileMap, ok := file.(map[string]interface{}); ok {
+					name, _ := fileMap["name"].(string)
+					isDir, _ := fileMap["is_dir"].(bool)
+					size, _ := fileMap["size"].(float64)
+					mode, _ := fileMap["mode"].(string)
+					
+					// Format like ls -la
+					dirChar := "-"
+					if isDir {
+						dirChar = "d"
+					}
+					sizeStr := fmt.Sprintf("%.0f", size)
+					if isDir {
+						sizeStr = "-"
+					}
+					
+					// Safely get mode string
+					modeStr := ""
+					if len(mode) > 1 {
+						modeStr = mode[1:]
+					} else {
+						modeStr = mode
+					}
+					
+					fmt.Printf("%s%s  %8s  %s\n", 
+						dirChar, modeStr,
+						sizeStr,
+						name)
+					
+					// Show only first 20 files
+					if i >= 19 && len(files) > 20 {
+						fmt.Printf("... and %d more files\n", len(files)-20)
+						break
+					}
+				}
+			}
+			fmt.Println()
+			return
+		}
+	}
+	
+	// read_file tool result
+	if content, ok := result["content"].(string); ok {
+		path, _ := result["path"].(string)
+		size, _ := result["size"].(float64)
+		
+		fmt.Printf("📄 File: %s (%.0f bytes)\n", path, size)
+		fmt.Println(strings.Repeat("─", 50))
+		fmt.Println(content)
+		if !strings.HasSuffix(content, "\n") {
+			fmt.Println()
+		}
+		fmt.Println(strings.Repeat("─", 50))
+		fmt.Println()
+		return
+	}
+	
+	// system_info tool result
+	if hostname, ok := result["hostname"].(string); ok {
+		currentDir, _ := result["current_dir"].(string)
+		gatewayPid, _ := result["gateway_pid"].(float64)
+		
+		fmt.Println("🖥️  System Information:")
+		fmt.Printf("   Hostname: %s\n", hostname)
+		fmt.Printf("   Current directory: %s\n", currentDir)
+		fmt.Printf("   Gateway PID: %.0f\n", gatewayPid)
+		fmt.Printf("   Time: %v\n", result["time"])
+		
+		// Show first few env vars
+		if envVars, ok := result["env_vars"].([]interface{}); ok && len(envVars) > 0 {
+			fmt.Println("\n   Environment variables:")
+			for i := 0; i < min(5, len(envVars)); i++ {
+				if env, ok := envVars[i].(string); ok {
+					fmt.Printf("   • %s\n", env)
+				}
+			}
+			if len(envVars) > 5 {
+				fmt.Printf("   ... and %d more\n", len(envVars)-5)
+			}
+		}
+		
+		fmt.Println()
+		return
+	}
+	
+	// Unknown JSON format, pretty print it
+	fmt.Println("🤖 Tool result:")
+	prettyJSON, err := json.MarshalIndent(result, "  ", "  ")
+	if err != nil {
+		fmt.Printf("🤖 %v\n\n", result)
+		return
+	}
+	fmt.Println(string(prettyJSON))
+	fmt.Println()
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (a *RealAgent) RunInteractive() error {
