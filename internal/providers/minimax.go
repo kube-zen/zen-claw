@@ -3,44 +3,46 @@ package providers
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/neves/zen-claw/internal/ai"
 	"github.com/sashabaranov/go-openai"
 )
 
-type OpenAIProvider struct {
+// MinimaxProvider implements Minimax R2/M2.1 which uses OpenAI-compatible API
+type MinimaxProvider struct {
 	client *openai.Client
 	config ProviderConfig
 }
 
-func NewOpenAIProvider(config ProviderConfig) (*OpenAIProvider, error) {
+func NewMinimaxProvider(config ProviderConfig) (*MinimaxProvider, error) {
 	if config.APIKey == "" {
-		return nil, fmt.Errorf("API key required for OpenAI")
+		return nil, fmt.Errorf("API key required for Minimax")
 	}
 
-	// Create client with optional base URL
+	// Minimax uses OpenAI-compatible API with custom endpoint
 	clientConfig := openai.DefaultConfig(config.APIKey)
 	if config.BaseURL != "" {
 		clientConfig.BaseURL = config.BaseURL
+	} else {
+		clientConfig.BaseURL = "https://api.minimax.chat/v1"
 	}
 
 	client := openai.NewClientWithConfig(clientConfig)
-	return &OpenAIProvider{
+	return &MinimaxProvider{
 		client: client,
 		config: config,
 	}, nil
 }
 
-func (p *OpenAIProvider) Name() string {
-	return "openai"
+func (p *MinimaxProvider) Name() string {
+	return "minimax"
 }
 
-func (p *OpenAIProvider) SupportsTools() bool {
-	return true
+func (p *MinimaxProvider) SupportsTools() bool {
+	return true // Minimax supports tool calling
 }
 
-func (p *OpenAIProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
+func (p *MinimaxProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
 	// Convert messages to OpenAI format
 	var messages []openai.ChatCompletionMessage
 	for _, msg := range req.Messages {
@@ -69,7 +71,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.Chat
 		model = req.Model
 	}
 	if model == "" {
-		model = "gpt-4o-mini" // Default
+		model = "minimax-M2.1"
 	}
 
 	// Create completion request
@@ -81,8 +83,6 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.Chat
 
 	// Add thinking mode if requested
 	if req.Thinking {
-		// For OpenAI, we might use a different approach
-		// For now, just note it's requested
 		completionReq.ResponseFormat = &openai.ChatCompletionResponseFormat{
 			Type: openai.ChatCompletionResponseFormatTypeText,
 		}
@@ -91,22 +91,19 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.Chat
 	// Make API call
 	resp, err := p.client.CreateChatCompletion(ctx, completionReq)
 	if err != nil {
-		return nil, fmt.Errorf("OpenAI API error: %w", err)
+		return nil, fmt.Errorf("Minimax API error: %w", err)
 	}
 
 	// Convert response
 	chatResp := &ai.ChatResponse{
-		Content:    resp.Choices[0].Message.Content,
+		Content:      resp.Choices[0].Message.Content,
 		FinishReason: string(resp.Choices[0].FinishReason),
 	}
 
 	// Extract tool calls if any
 	if resp.Choices[0].Message.ToolCalls != nil {
 		for _, toolCall := range resp.Choices[0].Message.ToolCalls {
-			// Parse arguments (assuming JSON)
 			args := make(map[string]interface{})
-			// In real implementation, we'd parse the JSON arguments
-			// For now, just store the raw string
 			args["_raw"] = toolCall.Function.Arguments
 			
 			chatResp.ToolCalls = append(chatResp.ToolCalls, ai.ToolCall{
@@ -118,38 +115,4 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.Chat
 	}
 
 	return chatResp, nil
-}
-
-// SimpleProvider is a fallback that doesn't require API key
-type SimpleProvider struct{}
-
-func NewSimpleProvider() *SimpleProvider {
-	return &SimpleProvider{}
-}
-
-func (p *SimpleProvider) Name() string {
-	return "simple"
-}
-
-func (p *SimpleProvider) SupportsTools() bool {
-	return false
-}
-
-func (p *SimpleProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
-	// Simple echo with tool awareness
-	response := "I'm a simple AI provider. "
-	if len(req.Tools) > 0 {
-		response += fmt.Sprintf("I see %d tools available: ", len(req.Tools))
-		for _, tool := range req.Tools {
-			response += tool.Name + ", "
-		}
-		response = strings.TrimSuffix(response, ", ") + ". "
-	}
-	
-	response += fmt.Sprintf("You said: %s", req.Messages[len(req.Messages)-1].Content)
-	
-	return &ai.ChatResponse{
-		Content:      response,
-		FinishReason: "stop",
-	}, nil
 }

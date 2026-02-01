@@ -3,10 +3,10 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
+	"path/filepath"
 
 	"github.com/neves/zen-claw/internal/agent"
-	"github.com/neves/zen-claw/internal/ai"
+	"github.com/neves/zen-claw/internal/config"
 	"github.com/neves/zen-claw/internal/providers"
 	"github.com/neves/zen-claw/internal/session"
 	"github.com/neves/zen-claw/internal/tools"
@@ -20,10 +20,11 @@ func newAgentCmd() *cobra.Command {
 		RunE:  runAgent,
 	}
 
-	cmd.Flags().String("model", "deepseek/deepseek-chat", "Model to use")
-	cmd.Flags().String("workspace", "", "Workspace directory (default: current)")
+	cmd.Flags().String("model", "", "Model to use (default: from config)")
+	cmd.Flags().String("workspace", "", "Workspace directory (default: from config)")
 	cmd.Flags().Bool("thinking", false, "Enable thinking mode")
 	cmd.Flags().String("task", "", "Task to execute (if not interactive)")
+	cmd.Flags().String("config", "", "Config file path (default: ~/.zen/zen-claw/config.yaml)")
 
 	return cmd
 }
@@ -33,13 +34,33 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	workspace, _ := cmd.Flags().GetString("workspace")
 	thinking, _ := cmd.Flags().GetBool("thinking")
 	task, _ := cmd.Flags().GetString("task")
+	configPath, _ := cmd.Flags().GetString("config")
 
+	// Load configuration
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	// Determine workspace
 	if workspace == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("get current directory: %w", err)
+		workspace = cfg.Workspace.Path
+		if workspace == "" {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("get current directory: %w", err)
+			}
+			workspace = cwd
 		}
-		workspace = cwd
+	}
+
+	// Expand ~ in workspace path
+	if workspace[:2] == "~/" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("get home directory: %w", err)
+		}
+		workspace = filepath.Join(home, workspace[2:])
 	}
 
 	// Ensure workspace exists
@@ -47,38 +68,36 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("create workspace: %w", err)
 	}
 
-	// Create AI provider based on model
-	var aiProvider ai.Provider
-	if strings.Contains(model, "openai") {
-		// Try to get OpenAI API key from environment
-		apiKey := os.Getenv("OPENAI_API_KEY")
-		if apiKey == "" {
-			fmt.Println("⚠️  OPENAI_API_KEY not set. Using mock provider with tool calls.")
-			aiProvider = providers.NewMockProvider(true)
-		} else {
-			openaiProvider, err := providers.NewOpenAIProvider(providers.Config{
-				APIKey: apiKey,
-				Model:  model,
-			})
-			if err != nil {
-				return fmt.Errorf("create OpenAI provider: %w", err)
-			}
-			aiProvider = openaiProvider
-		}
-	} else if strings.Contains(model, "mock") {
-		// Use mock provider with tool calls
-		fmt.Println("🔧 Using mock provider with tool calls")
+	// Determine provider and model
+	providerName := cfg.Default.Provider
+	if model != "" && model != "default" {
+		// Model can be in format "provider:model" or just "model"
+		providerName = cfg.Default.Provider
+		// Simple parsing - in real implementation, parse provider:model format
+	}
+
+	// Create provider factory
+	factory := providers.NewFactory(cfg)
+	
+	// Create AI provider
+	aiProvider, err := factory.CreateProvider(providerName)
+	if err != nil {
+		// If provider fails, fall back to mock
+		fmt.Printf("⚠️  Failed to create provider %s: %v\n", providerName, err)
+		fmt.Println("🔧 Falling back to mock provider")
 		aiProvider = providers.NewMockProvider(true)
-	} else {
-		// Use mock provider without tool calls for other models
-		fmt.Printf("🔧 Using mock provider for model: %s\n", model)
-		aiProvider = providers.NewMockProvider(false)
+	}
+
+	// Determine model to use
+	modelToUse := cfg.GetModel(providerName)
+	if model != "" && model != "default" {
+		modelToUse = model
 	}
 
 	// Create session
 	sess := session.New(session.Config{
 		Workspace: workspace,
-		Model:     model,
+		Model:     modelToUse,
 	})
 
 	// Create tool manager
@@ -91,14 +110,14 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create agent config
-	config := agent.Config{
-		Model:     model,
+	agentConfig := agent.Config{
+		Model:     modelToUse,
 		Workspace: workspace,
-		Thinking:  thinking,
+		Thinking:  thinking || cfg.Default.Thinking,
 	}
 
 	// Initialize real agent
-	ag := agent.NewRealAgent(config, aiProvider, toolMgr, sess)
+	ag := agent.NewRealAgent(agentConfig, aiProvider, toolMgr, sess)
 
 	// Run agent
 	if task != "" {

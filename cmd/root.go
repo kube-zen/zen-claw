@@ -20,6 +20,7 @@ func Execute() error {
 
 func init() {
 	rootCmd.AddCommand(newAgentCmd())
+	rootCmd.AddCommand(newConfigCmd())
 	rootCmd.AddCommand(newSessionCmd())
 	rootCmd.AddCommand(newToolsCmd())
 	rootCmd.AddCommand(newGatewayCmd())
