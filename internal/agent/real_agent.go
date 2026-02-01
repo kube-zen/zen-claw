@@ -118,13 +118,30 @@ CRITICAL TOOL USAGE RULES:
 4. For Node.js: If you see package.json, check scripts with "read_file"
 5. For direct commands: If user says "run <command>", use "exec" immediately
 
+6. When user asks to "check", "analyze", "review", or "read codebase":
+   - FIRST use "list_dir" to understand structure
+   - THEN read key files: go.mod, main.go, README.md, key source files
+   - FINALLY provide analysis and suggestions
+
+7. When user asks for "improvements" or "suggestions":
+   - Analyze the code you've read
+   - Identify issues: architecture, patterns, best practices
+   - Provide specific, actionable suggestions
+
 DIRECT ACTION REQUIRED:
 - "build <project>" → Check directory, then build
 - "run <command>" → Execute command directly
 - "test" → Run tests
 - "compile" → Compile project
+- "check codebase" → List directory, then read key files
+- "analyze project" → List directory, then read key files
+- "review code" → List directory, then read key files
+- "read codebase" → List directory, then read key files
 
-Be proactive. Use tools aggressively when asked to perform actions.`,
+Be proactive. Use tools aggressively when asked to perform actions.
+Don't just list directory and stop - take the next logical step.
+If user asks to understand code, READ THE FILES.
+If user asks for improvements, ANALYZE AND SUGGEST.`,
 	})
 	
 	// Add transcript history (last 10 messages)
