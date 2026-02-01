@@ -6,27 +6,31 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/neves/zen-claw/internal/ai"
 	"github.com/neves/zen-claw/internal/session"
+	"github.com/neves/zen-claw/internal/skills"
 	"github.com/neves/zen-claw/internal/tools"
 )
 
 type RealAgent struct {
-	provider ai.Provider
-	toolMgr  *tools.Manager
-	session  *session.Session
-	config   Config
+	provider  ai.Provider
+	toolMgr   *tools.Manager
+	session   *session.Session
+	config    Config
+	skillMgr  *skills.Manager
 }
 
-func NewRealAgent(config Config, provider ai.Provider, toolMgr *tools.Manager, sess *session.Session) *RealAgent {
+func NewRealAgent(config Config, provider ai.Provider, toolMgr *tools.Manager, sess *session.Session, skillMgr *skills.Manager) *RealAgent {
 	return &RealAgent{
 		provider: provider,
 		toolMgr:  toolMgr,
 		session:  sess,
 		config:   config,
+		skillMgr: skillMgr,
 	}
 }
 
@@ -326,6 +330,150 @@ func (a *RealAgent) printToolResult(result map[string]interface{}) {
 	fmt.Println()
 }
 
+func (a *RealAgent) listSkills() {
+	if a.skillMgr == nil {
+		fmt.Println("⚠️  Skills system not initialized")
+		return
+	}
+	
+	skills := a.skillMgr.List()
+	fmt.Printf("🎯 Skills: %d available\n", len(skills))
+	fmt.Println("─" + strings.Repeat("─", 60))
+	
+	for i, skill := range skills {
+		fmt.Printf("%2d. %s\n", i+1, skill.Name)
+		fmt.Printf("    %s\n", skill.Description)
+		if i < len(skills)-1 {
+			fmt.Println()
+		}
+	}
+	
+	if len(skills) == 0 {
+		fmt.Println("No skills found. Create skills in:", a.config.SkillsDir)
+		fmt.Println("  Example: Create ~/.zen/skills/code-review/SKILL.md")
+	}
+	fmt.Println()
+}
+
+func (a *RealAgent) listSessions() {
+	sessions, err := session.ListSessions(a.config.Workspace)
+	if err != nil {
+		fmt.Printf("❌ Error listing sessions: %v\n", err)
+		return
+	}
+	
+	fmt.Printf("📚 Sessions: %d total\n", len(sessions))
+	fmt.Println("─" + strings.Repeat("─", 60))
+	
+	for i, s := range sessions {
+		if i >= 10 {
+			fmt.Printf("... and %d more sessions\n", len(sessions)-10)
+			break
+		}
+		
+		id := s["id"].(string)
+		createdAt, _ := time.Parse(time.RFC3339, s["created_at"].(string))
+		messageCount, _ := s["message_count"].(float64)
+		model, hasModel := s["model"].(string)
+		lastUpdated, _ := time.Parse(time.RFC3339, s["last_updated"].(string))
+		
+		// Format time
+		timeStr := createdAt.Format("Jan 02 15:04")
+		if time.Since(createdAt) > 24*time.Hour {
+			timeStr = createdAt.Format("Jan 02")
+		}
+		
+		// Current session marker
+		current := ""
+		if id == a.session.ID() {
+			current = " ← current"
+		}
+		
+		fmt.Printf("%2d. %s%s\n", i+1, id[:8], current)
+		fmt.Printf("    Messages: %.0f", messageCount)
+		if hasModel && model != "" {
+			fmt.Printf(" | Model: %s", model)
+		}
+		fmt.Printf(" | Created: %s", timeStr)
+		
+		// Show age if not today
+		if time.Since(lastUpdated) > 24*time.Hour {
+			days := int(time.Since(lastUpdated).Hours() / 24)
+			fmt.Printf(" (%d days ago)", days)
+		}
+		fmt.Println()
+	}
+	fmt.Println()
+}
+
+func (a *RealAgent) printStatus() {
+	fmt.Println("📊 Zen Claw Status")
+	fmt.Println("─" + strings.Repeat("─", 40))
+	
+	// Session info
+	fmt.Printf("Session: %s\n", a.session.ID())
+	fmt.Printf("  Messages: %d\n", len(a.session.GetTranscript()))
+	fmt.Printf("  Model: %s\n", a.config.Model)
+	fmt.Printf("  Provider: %s\n", a.provider.Name())
+	
+	// Workspace info
+	workspace := a.config.Workspace
+	if _, err := os.Stat(workspace); err == nil {
+		fmt.Printf("Workspace: %s\n", workspace)
+		fmt.Printf("  Size: %v\n", formatBytes(getDirSize(workspace)))
+	}
+	
+	// Tools info
+	tools := a.toolMgr.List()
+	fmt.Printf("Tools: %d available\n", len(tools))
+	for i, tool := range tools {
+		if i < 5 {
+			fmt.Printf("  • %s\n", tool)
+		}
+	}
+	if len(tools) > 5 {
+		fmt.Printf("  ... and %d more\n", len(tools)-5)
+	}
+	
+	// Memory info (if we implement it)
+	sessionDir := filepath.Join(workspace, ".zen-claw", "sessions")
+	if _, err := os.Stat(sessionDir); err == nil {
+		if entries, err := os.ReadDir(sessionDir); err == nil {
+			fmt.Printf("Sessions: %d stored\n", len(entries))
+		}
+	}
+	
+	fmt.Println("─" + strings.Repeat("─", 40))
+	fmt.Println()
+}
+
+func getDirSize(path string) int64 {
+	var size int64
+	filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() {
+			size += info.Size()
+		}
+		return nil
+	})
+	return size
+}
+
+func formatBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -393,9 +541,15 @@ func (a *RealAgent) RunInteractive() error {
 				fmt.Printf("   Messages: %d\n", len(a.session.GetTranscript()))
 				fmt.Printf("   Model: %s\n", a.config.Model)
 				fmt.Printf("   Provider: %s\n", a.provider.Name())
+			case "sessions":
+				a.listSessions()
+			case "skills":
+				a.listSkills()
+			case "status":
+				a.printStatus()
 			default:
 				fmt.Printf("❓ Unknown command: %s\n", input)
-				fmt.Println("   Available: /exit, /stop, /pause, /resume, /help, /tools, /session")
+				fmt.Println("   Available: /exit, /stop, /pause, /resume, /help, /tools, /session, /sessions, /skills, /status")
 			}
 			continue
 		}

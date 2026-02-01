@@ -14,6 +14,7 @@ type Config struct {
 	Model     string
 	Workspace string
 	Thinking  bool
+	SkillsDir string
 }
 
 type Agent struct {
@@ -98,12 +99,15 @@ func (a *Agent) RunInteractive() error {
 func printHelp() {
 	fmt.Println("Commands (use / prefix):")
 	fmt.Println("  /exit    - Exit interactive mode")
-	fmt.Println("  /stop    - Stop current request (not yet implemented)")
+	fmt.Println("  /stop    - Stop current request")
 	fmt.Println("  /pause   - Pause current request (not yet implemented)")
 	fmt.Println("  /resume  - Resume paused request (not yet implemented)")
 	fmt.Println("  /help    - Show this help")
 	fmt.Println("  /tools   - List available tools")
-	fmt.Println("  /session - Show session information")
+	fmt.Println("  /session - Show current session information")
+	fmt.Println("  /sessions- List all saved sessions")
+	fmt.Println("  /skills  - List available skills")
+	fmt.Println("  /status  - Show system status")
 	fmt.Println("  <task>   - Run a task (no prefix needed)")
 	fmt.Println()
 }

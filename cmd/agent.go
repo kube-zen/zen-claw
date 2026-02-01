@@ -11,6 +11,7 @@ import (
 	"github.com/neves/zen-claw/internal/config"
 	"github.com/neves/zen-claw/internal/providers"
 	"github.com/neves/zen-claw/internal/session"
+	"github.com/neves/zen-claw/internal/skills"
 	"github.com/neves/zen-claw/internal/tools"
 	"github.com/spf13/cobra"
 )
@@ -136,15 +137,24 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("create tool manager: %w", err)
 	}
 
+	// Create skills manager
+	skillsDir := filepath.Join(workspace, "skills")
+	skillMgr, err := skills.NewManager(skillsDir)
+	if err != nil {
+		fmt.Printf("⚠️  Failed to create skills manager: %v\n", err)
+		skillMgr = nil
+	}
+
 	// Create agent config
 	agentConfig := agent.Config{
 		Model:     modelToUse,
 		Workspace: workspace,
 		Thinking:  thinking || cfg.Default.Thinking,
+		SkillsDir: skillsDir,
 	}
 
 	// Initialize real agent
-	ag := agent.NewRealAgent(agentConfig, aiProvider, toolMgr, sess)
+	ag := agent.NewRealAgent(agentConfig, aiProvider, toolMgr, sess, skillMgr)
 
 	// Run agent
 	if task != "" {
