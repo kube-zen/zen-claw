@@ -102,8 +102,9 @@ func (a *Agent) Run(ctx context.Context, userInput string) (string, error) {
 		// Add tool results to session
 		for _, result := range toolResults {
 			a.session.AddMessage(ai.Message{
-				Role:    "tool",
-				Content: result,
+				Role:       "tool",
+				Content:    result.Content,
+				ToolCallID: result.ToolCallID,
 			})
 		}
 
@@ -137,29 +138,48 @@ func (a *Agent) getAIResponse(ctx context.Context) (*ai.ChatResponse, error) {
 	return a.provider.Chat(ctx, req)
 }
 
-// executeToolCalls executes all tool calls and returns results
-func (a *Agent) executeToolCalls(ctx context.Context, toolCalls []ai.ToolCall) ([]string, error) {
-	var results []string
+// ToolResult represents the result of a tool execution
+type ToolResult struct {
+	ToolCallID string
+	Content    string
+	IsError    bool
+}
+
+// executeToolCalls executes all tool calls and returns results with tool call IDs
+func (a *Agent) executeToolCalls(ctx context.Context, toolCalls []ai.ToolCall) ([]ToolResult, error) {
+	var results []ToolResult
 
 	for _, call := range toolCalls {
 		log.Printf("[Agent] Executing tool: %s", call.Name)
 		
 		tool, exists := a.tools[call.Name]
 		if !exists {
-			results = append(results, fmt.Sprintf("Error: Tool '%s' not found", call.Name))
+			results = append(results, ToolResult{
+				ToolCallID: call.ID,
+				Content:    fmt.Sprintf("Error: Tool '%s' not found", call.Name),
+				IsError:    true,
+			})
 			continue
 		}
 
 		// Execute tool
 		result, err := tool.Execute(ctx, call.Args)
 		if err != nil {
-			results = append(results, fmt.Sprintf("Error executing %s: %v", call.Name, err))
+			results = append(results, ToolResult{
+				ToolCallID: call.ID,
+				Content:    fmt.Sprintf("Error executing %s: %v", call.Name, err),
+				IsError:    true,
+			})
 			continue
 		}
 
 		// Convert result to string
 		resultStr := fmt.Sprintf("%v", result)
-		results = append(results, resultStr)
+		results = append(results, ToolResult{
+			ToolCallID: call.ID,
+			Content:    resultStr,
+			IsError:    false,
+		})
 		
 		log.Printf("[Agent] Tool %s completed", call.Name)
 	}

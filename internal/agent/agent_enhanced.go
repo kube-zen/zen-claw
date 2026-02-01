@@ -83,8 +83,9 @@ func (a *EnhancedAgent) Run(ctx context.Context, userInput string) (string, erro
 		var toolResultMessages []ai.Message
 		for _, result := range toolResults {
 			msg := ai.Message{
-				Role:    "tool",
-				Content: result,
+				Role:       "tool",
+				Content:    result.Content,
+				ToolCallID: result.ToolCallID,
 			}
 			a.session.AddMessage(msg)
 			toolResultMessages = append(toolResultMessages, msg)
@@ -101,8 +102,8 @@ func (a *EnhancedAgent) Run(ctx context.Context, userInput string) (string, erro
 }
 
 // executeToolCallsWithEvents executes tool calls with event emission
-func (a *EnhancedAgent) executeToolCallsWithEvents(ctx context.Context, toolCalls []ai.ToolCall) ([]string, error) {
-	var results []string
+func (a *EnhancedAgent) executeToolCallsWithEvents(ctx context.Context, toolCalls []ai.ToolCall) ([]ToolResult, error) {
+	var results []ToolResult
 
 	for _, call := range toolCalls {
 		// Emit tool start event
@@ -112,32 +113,45 @@ func (a *EnhancedAgent) executeToolCallsWithEvents(ctx context.Context, toolCall
 		
 		tool, exists := a.tools[call.Name]
 		if !exists {
-			result := fmt.Sprintf("Error: Tool '%s' not found", call.Name)
+			result := ToolResult{
+				ToolCallID: call.ID,
+				Content:    fmt.Sprintf("Error: Tool '%s' not found", call.Name),
+				IsError:    true,
+			}
 			results = append(results, result)
 			
 			// Emit tool end event with error
 			a.eventEmitter.Emit(newToolEndEvent(
-				call.ID, call.Name, result, true, time.Since(startTime),
+				call.ID, call.Name, result.Content, true, time.Since(startTime),
 			))
 			continue
 		}
 
 		// Execute tool
-		result, err := tool.Execute(ctx, call.Args)
+		execResult, err := tool.Execute(ctx, call.Args)
 		if err != nil {
-			resultStr := fmt.Sprintf("Error executing %s: %v", call.Name, err)
-			results = append(results, resultStr)
+			result := ToolResult{
+				ToolCallID: call.ID,
+				Content:    fmt.Sprintf("Error executing %s: %v", call.Name, err),
+				IsError:    true,
+			}
+			results = append(results, result)
 			
 			// Emit tool end event with error
 			a.eventEmitter.Emit(newToolEndEvent(
-				call.ID, call.Name, resultStr, true, time.Since(startTime),
+				call.ID, call.Name, result.Content, true, time.Since(startTime),
 			))
 			continue
 		}
 
 		// Convert result to string
-		resultStr := fmt.Sprintf("%v", result)
-		results = append(results, resultStr)
+		resultStr := fmt.Sprintf("%v", execResult)
+		result := ToolResult{
+			ToolCallID: call.ID,
+			Content:    resultStr,
+			IsError:    false,
+		}
+		results = append(results, result)
 		
 		// Emit tool end event with success
 		a.eventEmitter.Emit(newToolEndEvent(
