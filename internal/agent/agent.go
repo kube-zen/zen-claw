@@ -110,7 +110,13 @@ func printHelp() {
 	fmt.Println("  /status  - Show system status")
 	fmt.Println("  /spawn   - Spawn sub-agent for task")
 	fmt.Println("  /models  - List or switch models")
+	fmt.Println("  /build   - Build current or specified project")
 	fmt.Println("  <task>   - Run a task (no prefix needed)")
+	fmt.Println()
+	fmt.Println("💡 Build Tips:")
+	fmt.Println("  • '/build' - Attempt to build current project")
+	fmt.Println("  • 'Run go build command' - Explicit build request")
+	fmt.Println("  • 'Use exec tool: go build' - Direct command execution")
 	fmt.Println()
 }
 

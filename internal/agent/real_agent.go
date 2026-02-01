@@ -380,6 +380,24 @@ func (a *RealAgent) listModels() {
 	fmt.Println()
 }
 
+func (a *RealAgent) buildProject(project string) {
+	if project == "" {
+		project = "current project"
+	}
+	
+	fmt.Printf("🔨 Building: %s\n", project)
+	fmt.Println("💡 Tip: For immediate build, use explicit command:")
+	fmt.Println("   'Run go build command' or 'Use exec tool: go build'")
+	fmt.Println()
+	
+	// Run a task that should trigger build
+	task := fmt.Sprintf("Build %s using appropriate build command. Check if it's a Go project and run go build if it is.", project)
+	
+	if err := a.RunTask(task); err != nil {
+		fmt.Printf("❌ Build failed: %v\n", err)
+	}
+}
+
 func (a *RealAgent) switchModel(modelName string) {
 	fmt.Printf("🔄 Switching to model: %s\n", modelName)
 	
@@ -658,9 +676,16 @@ func (a *RealAgent) RunInteractive() error {
 				} else {
 					a.listModels()
 				}
+			case "build":
+				if len(args) > 0 {
+					project := strings.Join(args, " ")
+					a.buildProject(project)
+				} else {
+					a.buildProject("")
+				}
 			default:
 				fmt.Printf("❓ Unknown command: %s\n", input)
-				fmt.Println("   Available: /exit, /stop, /pause, /resume, /help, /tools, /session, /sessions, /skills, /status, /spawn, /models")
+				fmt.Println("   Available: /exit, /stop, /pause, /resume, /help, /tools, /session, /sessions, /skills, /status, /spawn, /models, /build")
 			}
 			continue
 		}
