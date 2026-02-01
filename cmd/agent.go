@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/neves/zen-claw/internal/agent"
 	"github.com/spf13/cobra"
