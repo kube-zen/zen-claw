@@ -3,6 +3,7 @@ package agent
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -30,19 +31,23 @@ func NewRealAgent(config Config, provider ai.Provider, toolMgr *tools.Manager, s
 }
 
 func (a *RealAgent) RunTask(task string) error {
+	return a.RunTaskWithContext(context.Background(), task)
+}
+
+func (a *RealAgent) RunTaskWithContext(ctx context.Context, task string) error {
 	fmt.Printf("🧠 Running task: %s\n\n", task)
 
 	// Add user message to session
 	a.session.AddMessage("user", task)
 
-	// Get AI response
-	response, err := a.processWithAI(task)
+	// Get AI response with context
+	response, err := a.processWithAIWithContext(ctx, task)
 	if err != nil {
 		return fmt.Errorf("AI processing failed: %w", err)
 	}
 
 	// Print the response
-	fmt.Printf("🤖 %s\n\n", response)
+	a.printFormattedResponse(response)
 
 	// Add assistant response to session
 	a.session.AddMessage("assistant", response)
@@ -56,6 +61,10 @@ func (a *RealAgent) RunTask(task string) error {
 }
 
 func (a *RealAgent) processWithAI(input string) (string, error) {
+	return a.processWithAIWithContext(context.Background(), input)
+}
+
+func (a *RealAgent) processWithAIWithContext(ctx context.Context, input string) (string, error) {
 	// Get available tools
 	toolList := a.toolMgr.List()
 	
@@ -171,6 +180,26 @@ func (a *RealAgent) handleToolCalls(toolCalls []ai.ToolCall) (string, error) {
 	return strings.Join(results, "\n"), nil
 }
 
+func (a *RealAgent) printFormattedResponse(response string) {
+	// Try to parse as JSON first
+	var jsonObj interface{}
+	if err := json.Unmarshal([]byte(response), &jsonObj); err == nil {
+		// It's JSON, pretty print it
+		fmt.Println("🤖 Tool result:")
+		prettyJSON, err := json.MarshalIndent(jsonObj, "  ", "  ")
+		if err != nil {
+			fmt.Printf("🤖 %s\n\n", response)
+			return
+		}
+		fmt.Println(string(prettyJSON))
+		fmt.Println()
+		return
+	}
+	
+	// Not JSON, print as-is
+	fmt.Printf("🤖 %s\n\n", response)
+}
+
 func (a *RealAgent) RunInteractive() error {
 	fmt.Println("🧠 Zen Claw Interactive Mode")
 	fmt.Printf("Model: %s\n", a.config.Model)
@@ -181,6 +210,11 @@ func (a *RealAgent) RunInteractive() error {
 	fmt.Println()
 
 	scanner := bufio.NewScanner(os.Stdin)
+	
+	// Create a cancellable context for the current task
+	var cancel context.CancelFunc
+	var currentTaskRunning bool
+	
 	for {
 		fmt.Print("> ")
 		if !scanner.Scan() {
@@ -197,11 +231,20 @@ func (a *RealAgent) RunInteractive() error {
 			cmd := strings.ToLower(strings.TrimPrefix(input, "/"))
 			switch cmd {
 			case "exit", "quit":
+				// Cancel any running task
+				if cancel != nil {
+					cancel()
+				}
 				fmt.Println("👋 Goodbye!")
 				return nil
 			case "stop":
-				fmt.Println("⚠️  Stop command received (not yet implemented)")
-				// TODO: Implement cancellation context
+				if currentTaskRunning && cancel != nil {
+					fmt.Println("⏹️  Stopping current task...")
+					cancel()
+					currentTaskRunning = false
+				} else {
+					fmt.Println("ℹ️  No task is currently running")
+				}
 			case "pause":
 				fmt.Println("⏸️  Pause command received (not yet implemented)")
 				// TODO: Implement pausing
@@ -224,9 +267,32 @@ func (a *RealAgent) RunInteractive() error {
 			continue
 		}
 
-		// Run as task
-		if err := a.RunTask(input); err != nil {
-			fmt.Printf("❌ Error: %v\n", err)
+		// Run as task with cancellable context
+		ctx, ctxCancel := context.WithCancel(context.Background())
+		cancel = ctxCancel
+		currentTaskRunning = true
+		
+		// Run task in goroutine so we can cancel it
+		taskErr := make(chan error, 1)
+		go func() {
+			taskErr <- a.RunTaskWithContext(ctx, input)
+		}()
+		
+		// Wait for task to complete or be cancelled
+		select {
+		case err := <-taskErr:
+			currentTaskRunning = false
+			if err != nil {
+				if err == context.Canceled {
+					fmt.Println("🛑 Task cancelled")
+				} else {
+					fmt.Printf("❌ Error: %v\n", err)
+				}
+			}
+		case <-time.After(30 * time.Second):
+			// Timeout for safety
+			currentTaskRunning = false
+			fmt.Println("⏰ Task timeout (30s)")
 		}
 	}
 

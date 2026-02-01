@@ -7,7 +7,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -49,6 +51,8 @@ func NewServer(cfg *config.Config) *Server {
 	mux.HandleFunc("/chat/stream", srv.chatStreamHandler)
 	mux.HandleFunc("/sessions", srv.sessionsHandler)
 	mux.HandleFunc("/sessions/", srv.sessionHandler)
+	mux.HandleFunc("/tools", srv.toolsHandler)
+	mux.HandleFunc("/tools/execute", srv.toolsExecuteHandler)
 	mux.HandleFunc("/", srv.defaultHandler)
 
 	srv.server = &http.Server{
@@ -221,12 +225,14 @@ func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 		aiProvider = providers.NewMockProvider(false)
 	}
 
+	// Get available tools
+	availableTools := s.getAvailableTools()
+	
 	// Create chat request
 	chatReq := ai.ChatRequest{
 		Model:    model,
 		Messages: session.Messages,
-		// Note: We're not sending tools through gateway yet
-		// Tools will be added in a future version
+		Tools:    availableTools,
 	}
 
 	// Get AI response
@@ -234,6 +240,44 @@ func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, fmt.Sprintf("AI processing failed: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	// Handle tool calls if any
+	if len(resp.ToolCalls) > 0 {
+		// Execute tool calls
+		toolResults := s.executeToolCalls(resp.ToolCalls)
+		
+		// Add tool call messages to session
+		for range resp.ToolCalls {
+			session.Messages = append(session.Messages, ai.Message{
+				Role:    "assistant",
+				Content: "",
+				// Note: We need a way to store tool calls in messages
+			})
+		}
+		
+		// Add tool results to session
+		for _, result := range toolResults {
+			session.Messages = append(session.Messages, ai.Message{
+				Role:    "tool",
+				Content: result,
+			})
+		}
+		
+		// For now, just return the first tool call result
+		// In a full implementation, we'd send results back to AI for follow-up
+		if len(toolResults) > 0 {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"response":   toolResults[0],
+				"tool_calls": len(resp.ToolCalls),
+				"provider":   provider,
+				"model":      model,
+				"session_id": session.ID,
+				"finish_reason": "tool_calls",
+			})
+			return
+		}
 	}
 
 	// Add assistant response to session
@@ -429,6 +473,231 @@ func (s *Server) sessionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) toolsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// List available tools on gateway
+	tools := []map[string]interface{}{
+		{
+			"name":        "exec",
+			"description": "Execute shell command on gateway host",
+			"parameters": map[string]interface{}{
+				"command": map[string]interface{}{
+					"type":        "string",
+					"description": "Shell command to execute",
+				},
+			},
+		},
+		{
+			"name":        "list_dir",
+			"description": "List directory contents on gateway host",
+			"parameters": map[string]interface{}{
+				"path": map[string]interface{}{
+					"type":        "string",
+					"description": "Directory path (default: current directory)",
+					"optional":    true,
+				},
+			},
+		},
+		{
+			"name":        "read_file",
+			"description": "Read file from gateway host",
+			"parameters": map[string]interface{}{
+				"path": map[string]interface{}{
+					"type":        "string",
+					"description": "File path to read",
+				},
+			},
+		},
+		{
+			"name":        "system_info",
+			"description": "Get system information from gateway host",
+			"parameters":   map[string]interface{}{},
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"tools": tools,
+	})
+}
+
+func (s *Server) toolsExecuteHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Tool string                 `json:"tool"`
+		Args map[string]interface{} `json:"args"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Tool == "" {
+		http.Error(w, "Tool name is required", http.StatusBadRequest)
+		return
+	}
+
+	// Execute tool
+	var result interface{}
+	var err error
+
+	switch req.Tool {
+	case "exec":
+		result, err = s.executeCommand(req.Args)
+	case "list_dir":
+		result, err = s.listDirectory(req.Args)
+	case "read_file":
+		result, err = s.readFile(req.Args)
+	case "system_info":
+		result, err = s.getSystemInfo(req.Args)
+	default:
+		http.Error(w, fmt.Sprintf("Unknown tool: %s", req.Tool), http.StatusBadRequest)
+		return
+	}
+
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Tool execution failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"result": result,
+		"tool":   req.Tool,
+		"success": true,
+	})
+}
+
+func (s *Server) executeCommand(args map[string]interface{}) (interface{}, error) {
+	command, ok := args["command"].(string)
+	if !ok || command == "" {
+		return nil, fmt.Errorf("command is required")
+	}
+
+	// ⚠️ DANGEROUS: Executing arbitrary commands!
+	// In production, you should:
+	// 1. Validate commands
+	// 2. Use allowlists
+	// 3. Run in sandbox
+	// 4. Add timeouts
+	// 5. Log all executions
+	
+	cmd := exec.Command("sh", "-c", command)
+	output, err := cmd.CombinedOutput()
+	
+	result := map[string]interface{}{
+		"command": command,
+		"output":  string(output),
+	}
+	
+	if err != nil {
+		result["error"] = err.Error()
+		result["exit_code"] = cmd.ProcessState.ExitCode()
+	}
+	
+	return result, nil
+}
+
+func (s *Server) listDirectory(args map[string]interface{}) (interface{}, error) {
+	path := "."
+	if p, ok := args["path"].(string); ok && p != "" {
+		path = p
+	}
+
+	// Safety: prevent directory traversal
+	if strings.Contains(path, "..") {
+		return nil, fmt.Errorf("directory traversal not allowed")
+	}
+
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, fmt.Errorf("read directory: %w", err)
+	}
+
+	var files []map[string]interface{}
+	for _, entry := range entries {
+		info, _ := entry.Info()
+		files = append(files, map[string]interface{}{
+			"name":    entry.Name(),
+			"is_dir":  entry.IsDir(),
+			"size":    info.Size(),
+			"mode":    info.Mode().String(),
+			"mod_time": info.ModTime().Format(time.RFC3339),
+		})
+	}
+
+	return map[string]interface{}{
+		"path":  path,
+		"files": files,
+	}, nil
+}
+
+func (s *Server) readFile(args map[string]interface{}) (interface{}, error) {
+	path, ok := args["path"].(string)
+	if !ok || path == "" {
+		return nil, fmt.Errorf("path is required")
+	}
+
+	// Safety checks
+	if strings.Contains(path, "..") {
+		return nil, fmt.Errorf("directory traversal not allowed")
+	}
+	
+	// Limit file size (1MB)
+	const maxSize = 1 * 1024 * 1024
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat file: %w", err)
+	}
+	
+	if info.Size() > maxSize {
+		return nil, fmt.Errorf("file too large (%d bytes > %d bytes)", info.Size(), maxSize)
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read file: %w", err)
+	}
+
+	return map[string]interface{}{
+		"path":    path,
+		"content": string(content),
+		"size":    len(content),
+	}, nil
+}
+
+func (s *Server) getSystemInfo(args map[string]interface{}) (interface{}, error) {
+	// Get hostname
+	hostname, _ := os.Hostname()
+	
+	// Get current directory
+	cwd, _ := os.Getwd()
+	
+	// Get environment info
+	env := os.Environ()
+	// Limit to first 20 env vars for brevity
+	if len(env) > 20 {
+		env = env[:20]
+	}
+
+	return map[string]interface{}{
+		"hostname":    hostname,
+		"current_dir": cwd,
+		"gateway_pid": os.Getpid(),
+		"env_vars":    env,
+		"time":        time.Now().Format(time.RFC3339),
+	}, nil
+}
+
 func (s *Server) defaultHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 	fmt.Fprintf(w, "Zen Claw Gateway v0.1.0\n")
@@ -439,6 +708,8 @@ func (s *Server) defaultHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "  GET  /sessions         - List sessions\n")
 	fmt.Fprintf(w, "  GET  /sessions/{id}    - Get session\n")
 	fmt.Fprintf(w, "  DELETE /sessions/{id}  - Delete session\n")
+	fmt.Fprintf(w, "  GET  /tools            - List available tools\n")
+	fmt.Fprintf(w, "  POST /tools/execute    - Execute tool on gateway host\n")
 }
 
 // Helper functions
@@ -469,6 +740,103 @@ func (s *Server) getOrCreateSession(sessionID string) *Session {
 
 func generateSessionID() string {
 	return fmt.Sprintf("sess_%d", time.Now().UnixNano())
+}
+
+func (s *Server) getAvailableTools() []ai.ToolDefinition {
+	return []ai.ToolDefinition{
+		{
+			Name:        "exec",
+			Description: "Execute shell command on gateway host",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"command": map[string]interface{}{
+						"type":        "string",
+						"description": "Shell command to execute",
+					},
+				},
+				"required": []string{"command"},
+			},
+		},
+		{
+			Name:        "list_dir",
+			Description: "List directory contents on gateway host",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"path": map[string]interface{}{
+						"type":        "string",
+						"description": "Directory path (default: current directory)",
+					},
+				},
+			},
+		},
+		{
+			Name:        "read_file",
+			Description: "Read file from gateway host",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"path": map[string]interface{}{
+						"type":        "string",
+						"description": "File path to read",
+					},
+				},
+				"required": []string{"path"},
+			},
+		},
+		{
+			Name:        "system_info",
+			Description: "Get system information from gateway host",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+	}
+}
+
+func (s *Server) executeToolCalls(toolCalls []ai.ToolCall) []string {
+	var results []string
+	
+	for _, toolCall := range toolCalls {
+		var result interface{}
+		var err error
+		
+		// Convert args from map[string]interface{} to what our functions expect
+		args := make(map[string]interface{})
+		for k, v := range toolCall.Args {
+			args[k] = v
+		}
+		
+		switch toolCall.Name {
+		case "exec":
+			result, err = s.executeCommand(args)
+		case "list_dir":
+			result, err = s.listDirectory(args)
+		case "read_file":
+			result, err = s.readFile(args)
+		case "system_info":
+			result, err = s.getSystemInfo(args)
+		default:
+			result = fmt.Sprintf("Unknown tool: %s", toolCall.Name)
+		}
+		
+		if err != nil {
+			results = append(results, fmt.Sprintf("Tool %s failed: %v", toolCall.Name, err))
+		} else {
+			// Convert result to string
+			if str, ok := result.(string); ok {
+				results = append(results, str)
+			} else if bytes, err := json.Marshal(result); err == nil {
+				results = append(results, string(bytes))
+			} else {
+				results = append(results, fmt.Sprintf("%v", result))
+			}
+		}
+	}
+	
+	return results
 }
 
 func jsonEscape(s string) string {

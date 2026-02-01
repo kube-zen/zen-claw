@@ -36,9 +36,8 @@ func (p *GatewayProvider) Name() string {
 }
 
 func (p *GatewayProvider) SupportsTools() bool {
-	// Gateway doesn't support tool calls yet
-	// The HTTP gateway endpoint doesn't accept tool definitions
-	return false
+	// Gateway now supports tool calls
+	return true
 }
 
 func (p *GatewayProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
