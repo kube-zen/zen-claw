@@ -48,7 +48,7 @@ func NewServer(cfg *config.Config) *Server {
 	return srv
 }
 
-// Start starts the gateway server
+// Start starts the gateway server (blocks until shutdown)
 func (s *Server) Start() error {
 	s.mu.Lock()
 	if s.running {
@@ -64,17 +64,26 @@ func (s *Server) Start() error {
 	}
 
 	// Start server in goroutine
+	serverErr := make(chan error, 1)
 	go func() {
 		log.Printf("Starting Zen Claw gateway on %s", s.server.Addr)
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed: %v", err)
+			serverErr <- err
 		}
 	}()
 
-	// Wait for shutdown signal
-	go s.waitForShutdown()
-
-	return nil
+	// Wait for shutdown signal or server error
+	shutdownChan := make(chan os.Signal, 1)
+	signal.Notify(shutdownChan, syscall.SIGINT, syscall.SIGTERM)
+	
+	select {
+	case sig := <-shutdownChan:
+		log.Printf("Shutdown signal received: %v", sig)
+		s.Stop()
+		return nil
+	case err := <-serverErr:
+		return fmt.Errorf("server failed: %w", err)
+	}
 }
 
 // Stop stops the gateway server
@@ -121,15 +130,7 @@ func (s *Server) Status() string {
 	return "stopped"
 }
 
-// waitForShutdown waits for shutdown signals
-func (s *Server) waitForShutdown() {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
-
-	log.Println("Shutdown signal received")
-	s.Stop()
-}
+// waitForShutdown is now integrated into Start() method
 
 // writePID writes the PID to file
 func (s *Server) writePID() error {
