@@ -1,8 +1,11 @@
 # Building and Running Zen Claw
 
-## When Go is Installed
+## Go 1.24+ Required
 
 ```bash
+# Check Go version (1.24 or higher)
+go version
+
 # Install dependencies
 go mod tidy
 
@@ -14,6 +17,13 @@ go build -o zen-claw .
 ./zen-claw agent --help
 ./zen-claw tools
 ```
+
+## ✅ Verified Build
+
+The project has been successfully built and tested with:
+- **Go 1.24.3** (system default at `/usr/local/go/bin/go`)
+- **Cobra CLI framework** v1.8.1
+- **Binary**: `zen-claw` (5.7MB, Linux amd64)
 
 ## Development
 
