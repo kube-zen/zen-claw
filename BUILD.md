@@ -1,9 +1,9 @@
 # Building and Running Zen Claw
 
-## Go 1.24+ Required
+## Go 1.24 (Compatible with ~/zen projects)
 
 ```bash
-# Check Go version (1.24 or higher)
+# Check Go version (1.24 for compatibility)
 go version
 
 # Install dependencies
@@ -21,9 +21,10 @@ go build -o zen-claw .
 ## ✅ Verified Build
 
 The project has been successfully built and tested with:
-- **Go 1.24.3** (system default at `/usr/local/go/bin/go`)
+- **Go 1.24.3** (system default at `/usr/local/go/bin/go`, compatible with ~/zen)
 - **Cobra CLI framework** v1.8.1
-- **Binary**: `zen-claw` (5.7MB, Linux amd64)
+- **Binary**: `zen-claw` (13MB with OpenAI SDK, Linux amd64)
+- **Compatibility**: Safe with existing ~/zen projects
 
 ## Development
 
