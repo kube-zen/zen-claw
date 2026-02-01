@@ -23,6 +23,8 @@ type ChatRequest struct {
 	Messages []Message
 	Tools    []ToolDefinition
 	Thinking bool
+	MaxTokens int
+	Temperature float64
 }
 
 // ChatResponse represents a chat completion response

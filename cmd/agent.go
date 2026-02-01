@@ -3,8 +3,13 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/neves/zen-claw/internal/agent"
+	"github.com/neves/zen-claw/internal/ai"
+	"github.com/neves/zen-claw/internal/providers"
+	"github.com/neves/zen-claw/internal/session"
+	"github.com/neves/zen-claw/internal/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -42,6 +47,49 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("create workspace: %w", err)
 	}
 
+	// Create AI provider based on model
+	var aiProvider ai.Provider
+	if strings.Contains(model, "openai") {
+		// Try to get OpenAI API key from environment
+		apiKey := os.Getenv("OPENAI_API_KEY")
+		if apiKey == "" {
+			fmt.Println("⚠️  OPENAI_API_KEY not set. Using mock provider with tool calls.")
+			aiProvider = providers.NewMockProvider(true)
+		} else {
+			openaiProvider, err := providers.NewOpenAIProvider(providers.Config{
+				APIKey: apiKey,
+				Model:  model,
+			})
+			if err != nil {
+				return fmt.Errorf("create OpenAI provider: %w", err)
+			}
+			aiProvider = openaiProvider
+		}
+	} else if strings.Contains(model, "mock") {
+		// Use mock provider with tool calls
+		fmt.Println("🔧 Using mock provider with tool calls")
+		aiProvider = providers.NewMockProvider(true)
+	} else {
+		// Use mock provider without tool calls for other models
+		fmt.Printf("🔧 Using mock provider for model: %s\n", model)
+		aiProvider = providers.NewMockProvider(false)
+	}
+
+	// Create session
+	sess := session.New(session.Config{
+		Workspace: workspace,
+		Model:     model,
+	})
+
+	// Create tool manager
+	toolMgr, err := tools.NewManager(tools.Config{
+		Workspace: workspace,
+		Session:   sess,
+	})
+	if err != nil {
+		return fmt.Errorf("create tool manager: %w", err)
+	}
+
 	// Create agent config
 	config := agent.Config{
 		Model:     model,
@@ -49,11 +97,8 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		Thinking:  thinking,
 	}
 
-	// Initialize agent
-	ag, err := agent.New(config)
-	if err != nil {
-		return fmt.Errorf("create agent: %w", err)
-	}
+	// Initialize real agent
+	ag := agent.NewRealAgent(config, aiProvider, toolMgr, sess)
 
 	// Run agent
 	if task != "" {
