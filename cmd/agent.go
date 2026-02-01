@@ -1,165 +1,199 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"os"
-	"path/filepath"
 	"strings"
 
-	"github.com/neves/zen-claw/internal/ai"
 	"github.com/neves/zen-claw/internal/agent"
 	"github.com/neves/zen-claw/internal/config"
 	"github.com/neves/zen-claw/internal/providers"
-	"github.com/neves/zen-claw/internal/session"
-	"github.com/neves/zen-claw/internal/skills"
-	"github.com/neves/zen-claw/internal/tools"
 	"github.com/spf13/cobra"
 )
 
 func newAgentCmd() *cobra.Command {
+	var model string
+	var provider string
+	var workingDir string
+	var showEvents bool
+	var maxSteps int
+	
 	cmd := &cobra.Command{
 		Use:   "agent",
-		Short: "Run an AI agent session",
-		RunE:  runAgent,
+		Short: "Run AI agent with automatic tool chaining",
+		Long: `Zen Agent - AI agent with automatic multi-step tool execution.
+
+Features:
+- Automatic tool chaining: AI makes multiple tool calls, agent executes all
+- Conversation continuation: Tool results fed back to AI for follow-up
+- Session management: Save/load conversations
+- Multi-provider: DeepSeek, OpenAI, GLM, Minimax, Qwen
+
+Examples:
+  zen-claw agent --model deepseek/deepseek-chat "check codebase and suggest improvements"
+  zen-claw agent --provider openai "build this project"
+  zen-claw agent --working-dir ~/myproject "analyze architecture"
+  zen-claw agent --events "show me what's in this directory"`,
+		Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			runAgent(args[0], model, provider, workingDir, showEvents, maxSteps)
+		},
 	}
-
-	cmd.Flags().String("model", "", "Model to use (default: from config)")
-	cmd.Flags().String("workspace", "", "Workspace directory (default: from config)")
-	cmd.Flags().Bool("thinking", false, "Enable thinking mode")
-	cmd.Flags().String("task", "", "Task to execute (if not interactive)")
-	cmd.Flags().String("config", "", "Config file path (default: ~/.zen/zen-claw/config.yaml)")
-	cmd.Flags().Bool("gateway", false, "Use gateway instead of direct API calls")
-	cmd.Flags().String("gateway-url", "http://localhost:8080", "Gateway URL (if using gateway)")
-
+	
+	cmd.Flags().StringVar(&model, "model", "", "AI model (e.g., deepseek/deepseek-chat, openai/gpt-4o)")
+	cmd.Flags().StringVar(&provider, "provider", "", "AI provider (deepseek, openai, glm, minimax, qwen)")
+	cmd.Flags().StringVar(&workingDir, "working-dir", ".", "Working directory for tools")
+	cmd.Flags().BoolVar(&showEvents, "events", false, "Show real-time events and progress")
+	cmd.Flags().IntVar(&maxSteps, "max-steps", 10, "Maximum tool execution steps")
+	
 	return cmd
 }
 
-func runAgent(cmd *cobra.Command, args []string) error {
-	model, _ := cmd.Flags().GetString("model")
-	workspace, _ := cmd.Flags().GetString("workspace")
-	thinking, _ := cmd.Flags().GetBool("thinking")
-	task, _ := cmd.Flags().GetString("task")
-	configPath, _ := cmd.Flags().GetString("config")
-	useGateway, _ := cmd.Flags().GetBool("gateway")
-	gatewayURL, _ := cmd.Flags().GetString("gateway-url")
-
-	// Load configuration
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-
-	// Determine workspace
-	if workspace == "" {
-		workspace = cfg.Workspace.Path
-		if workspace == "" {
-			cwd, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("get current directory: %w", err)
-			}
-			workspace = cwd
-		}
-	}
-
-	// Expand ~ in workspace path
-	if workspace[:2] == "~/" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("get home directory: %w", err)
-		}
-		workspace = filepath.Join(home, workspace[2:])
-	}
-
-	// Ensure workspace exists
-	if err := os.MkdirAll(workspace, 0755); err != nil {
-		return fmt.Errorf("create workspace: %w", err)
-	}
-
-	// Determine provider and model
-	// If model is specified, it could be just a model name or provider:model
-	// For simplicity, we treat it as provider name unless it contains a slash
-	providerName := cfg.Default.Provider
-	modelToUse := cfg.GetModel(providerName)
-	
-	if model != "" && model != "default" {
-		// Check if it's a provider name (simple, mock, or known provider)
-		if model == "simple" || model == "mock" || 
-		   model == "openai" || model == "deepseek" || 
-		   model == "glm" || model == "minimax" {
-			// It's a provider name
-			providerName = model
-			modelToUse = cfg.GetModel(providerName)
-		} else if strings.Contains(model, "/") {
-			// It's a model name like "deepseek-chat" or "gpt-4o-mini"
-			// Try to guess provider from model name
-			modelToUse = model
-			// Keep default provider
-		} else {
-			// Unknown format, use as model name
-			modelToUse = model
-		}
-	}
-
-	var aiProvider ai.Provider
-	
-	if useGateway {
-		// Use gateway provider
-		fmt.Printf("🔗 Using gateway at %s\n", gatewayURL)
-		aiProvider = providers.NewGatewayProvider(gatewayURL)
+func runAgent(task, modelFlag, providerFlag, workingDir string, showEvents bool, maxSteps int) {
+	if showEvents {
+		fmt.Println("🚀 Zen Agent - Real-time Event Display")
 	} else {
-		// Use direct provider
-		factory := providers.NewFactory(cfg)
+		fmt.Println("🚀 Zen Agent - Multi-step Tool Execution")
+	}
+	fmt.Println("═" + strings.Repeat("═", 78))
+	fmt.Printf("Task: %s\n", task)
+	fmt.Printf("Working directory: %s\n", workingDir)
+	
+	// Load config
+	cfg, err := config.LoadConfig("")
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+	
+	// Determine provider and model
+	providerName := providerFlag
+	if providerName == "" {
+		providerName = cfg.Default.Provider
+	}
+	
+	modelName := modelFlag
+	if modelName == "" {
+		modelName = cfg.GetModel(providerName)
+	}
+	
+	fmt.Printf("Provider: %s, Model: %s\n", providerName, modelName)
+	if showEvents {
+		fmt.Println()
+	}
+	
+	// Create AI provider
+	factory := providers.NewFactory(cfg)
+	aiProvider, err := factory.CreateProvider(providerName)
+	if err != nil {
+		log.Fatalf("Failed to create provider %s: %v", providerName, err)
+	}
+	
+	// Create tools
+	tools := []agent.Tool{
+		agent.NewExecTool(workingDir),
+		agent.NewReadFileTool(workingDir),
+		agent.NewListDirTool(workingDir),
+		agent.NewSystemInfoTool(),
+	}
+	
+	// Create agent
+	var result string
+	var errRun error
+	
+	if showEvents {
+		// Use enhanced agent with events
+		enhancedAgent := agent.NewEnhancedAgent(agent.Config{
+			Provider:   aiProvider,
+			Tools:      tools,
+			WorkingDir: workingDir,
+			SessionID:  fmt.Sprintf("agent_%s", strings.ReplaceAll(task, " ", "_")),
+			MaxSteps:   maxSteps,
+		})
 		
-		// Create AI provider
-		provider, err := factory.CreateProvider(providerName)
-		if err != nil {
-			// If provider fails, fall back to mock
-			fmt.Printf("⚠️  Failed to create provider %s: %v\n", providerName, err)
-			fmt.Println("🔧 Falling back to mock provider")
-			aiProvider = providers.NewMockProvider(true)
-		} else {
-			aiProvider = provider
+		// Subscribe to events for display
+		unsubscribe := enhancedAgent.Subscribe(func(event agent.AgentEvent) {
+			displayEvent(event)
+		})
+		defer unsubscribe()
+		
+		// Run agent
+		ctx := context.Background()
+		if showEvents {
+			fmt.Println("🤖 Starting agent execution...")
+			fmt.Println()
 		}
+		
+		result, errRun = enhancedAgent.Run(ctx, task)
+	} else {
+		// Use basic agent
+		basicAgent := agent.NewAgent(agent.Config{
+			Provider:   aiProvider,
+			Tools:      tools,
+			WorkingDir: workingDir,
+			SessionID:  fmt.Sprintf("agent_%s", strings.ReplaceAll(task, " ", "_")),
+			MaxSteps:   maxSteps,
+		})
+		
+		// Run agent
+		ctx := context.Background()
+		result, errRun = basicAgent.Run(ctx, task)
 	}
-
-	// Create session
-	sess := session.New(session.Config{
-		Workspace: workspace,
-		Model:     modelToUse,
-	})
-
-	// Create tool manager
-	toolMgr, err := tools.NewManager(tools.Config{
-		Workspace: workspace,
-		Session:   sess,
-	})
-	if err != nil {
-		return fmt.Errorf("create tool manager: %w", err)
+	
+	if errRun != nil {
+		fmt.Printf("\n❌ Agent execution failed: %v\n", errRun)
+		os.Exit(1)
 	}
+	
+	// Print result
+	fmt.Println("\n" + strings.Repeat("═", 80))
+	fmt.Println("🎯 RESULT")
+	fmt.Println(strings.Repeat("═", 80))
+	fmt.Println(result)
+	fmt.Println(strings.Repeat("═", 80))
+}
 
-	// Create skills manager
-	skillsDir := filepath.Join(workspace, "skills")
-	skillMgr, err := skills.NewManager(skillsDir)
-	if err != nil {
-		fmt.Printf("⚠️  Failed to create skills manager: %v\n", err)
-		skillMgr = nil
+func displayEvent(event agent.AgentEvent) {
+	switch event.Type {
+	case agent.EventAgentStart:
+		data := event.Data.(agent.AgentStartEventData)
+		fmt.Printf("📡 Agent started: %s\n", data.SessionID)
+		fmt.Printf("   Task: %s\n", data.Task)
+		
+	case agent.EventTurnStart:
+		data := event.Data.(agent.TurnStartEventData)
+		fmt.Printf("\n🔄 Turn %d started\n", data.TurnNumber)
+		
+	case agent.EventToolStart:
+		data := event.Data.(agent.ToolStartEventData)
+		fmt.Printf("   🛠️  Executing tool: %s\n", data.ToolName)
+		if len(data.Args) > 0 {
+			fmt.Printf("     Args: %v\n", data.Args)
+		}
+		
+	case agent.EventToolEnd:
+		data := event.Data.(agent.ToolEndEventData)
+		status := "✅"
+		if data.IsError {
+			status = "❌"
+		}
+		fmt.Printf("   %s Tool %s completed (%dms)\n", 
+			status, data.ToolName, data.DurationMs)
+		
+	case agent.EventTurnEnd:
+		data := event.Data.(agent.TurnEndEventData)
+		fmt.Printf("   🔄 Turn %d completed\n", data.TurnNumber)
+		if len(data.ToolResults) > 0 {
+			fmt.Printf("     Tool results: %d\n", len(data.ToolResults))
+		}
+		
+	case agent.EventAgentEnd:
+		data := event.Data.(agent.AgentEndEventData)
+		fmt.Printf("\n🎯 Agent completed: %s\n", data.SessionID)
+		
+	case agent.EventError:
+		data := event.Data.(agent.ErrorEventData)
+		fmt.Printf("\n❌ Error: %s\n", data.Error)
 	}
-
-	// Create agent config
-	agentConfig := agent.Config{
-		Model:     modelToUse,
-		Workspace: workspace,
-		Thinking:  thinking || cfg.Default.Thinking,
-		SkillsDir: skillsDir,
-	}
-
-	// Initialize real agent
-	ag := agent.NewRealAgent(agentConfig, aiProvider, toolMgr, sess, skillMgr)
-
-	// Run agent
-	if task != "" {
-		return ag.RunTask(task)
-	}
-
-	return ag.RunInteractive()
 }

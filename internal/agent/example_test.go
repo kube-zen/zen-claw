@@ -1,4 +1,4 @@
-package agentlib_test
+package agent_test
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/neves/zen-claw/internal/agentlib"
+	"github.com/neves/zen-claw/internal/agent"
 	"github.com/neves/zen-claw/internal/ai"
 )
 
@@ -82,15 +82,15 @@ func TestAgentBasic(t *testing.T) {
 	provider := &MockProvider{}
 	
 	// Create tools
-	tools := []agentlib.Tool{
-		agentlib.NewListDirTool("."),
-		agentlib.NewReadFileTool("."),
-		agentlib.NewExecTool("."),
-		agentlib.NewSystemInfoTool(),
+	tools := []agent.Tool{
+		agent.NewListDirTool("."),
+		agent.NewReadFileTool("."),
+		agent.NewExecTool("."),
+		agent.NewSystemInfoTool(),
 	}
 	
 	// Create agent
-	agent := agentlib.NewAgent(agentlib.Config{
+	agent := agent.NewAgent(agent.Config{
 		Provider:   provider,
 		Tools:      tools,
 		WorkingDir: ".",

@@ -1,4 +1,4 @@
-package agentlib
+package agent
 
 import (
 	"sync"
