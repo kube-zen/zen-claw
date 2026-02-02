@@ -104,8 +104,11 @@ func (a *Agent) Run(ctx context.Context, session *Session, userInput string) (*S
 			return session, "", fmt.Errorf("AI response failed: %w", err)
 		}
 
+		// Parse tool calls from response content (text-based tool calling)
+		toolCalls := a.parseToolCallsFromText(resp.Content)
+		
 		// If no tool calls, we're done
-		if len(resp.ToolCalls) == 0 {
+		if len(toolCalls) == 0 && len(resp.ToolCalls) == 0 {
 			session.AddMessage(ai.Message{
 				Role:    "assistant",
 				Content: resp.Content,
@@ -113,10 +116,19 @@ func (a *Agent) Run(ctx context.Context, session *Session, userInput string) (*S
 			return session, resp.Content, nil
 		}
 
-		log.Printf("[Agent] Executing %d tool calls", len(resp.ToolCalls))
+		// Combine structured tool calls with parsed text tool calls
+		allToolCalls := resp.ToolCalls
+		if len(toolCalls) > 0 {
+			allToolCalls = append(allToolCalls, toolCalls...)
+		}
+		
+		// Clean content - remove XML tool call tags for cleaner display
+		cleanedContent := a.cleanToolCallTags(resp.Content)
+		
+		log.Printf("[Agent] Executing %d tool calls (%d from text parsing)", len(allToolCalls), len(toolCalls))
 		
 		// Execute all tool calls
-		toolResults, err := a.executeToolCalls(ctx, resp.ToolCalls)
+		toolResults, err := a.executeToolCalls(ctx, allToolCalls)
 		if err != nil {
 			return session, "", fmt.Errorf("tool execution failed: %w", err)
 		}
@@ -124,8 +136,8 @@ func (a *Agent) Run(ctx context.Context, session *Session, userInput string) (*S
 		// Add assistant message with tool calls
 		session.AddMessage(ai.Message{
 			Role:      "assistant",
-			Content:   resp.Content,
-			ToolCalls: resp.ToolCalls,
+			Content:   cleanedContent,
+			ToolCalls: allToolCalls,
 		})
 
 		// Add tool results to session
@@ -154,18 +166,19 @@ func (a *Agent) Run(ctx context.Context, session *Session, userInput string) (*S
 		log.Printf("[Agent] Added %d tool results, continuing...", len(toolResults))
 		
 		// Check if we should stop early (e.g., task completed)
-		if a.shouldStopEarly(resp.Content, toolResults) {
+		if a.shouldStopEarly(cleanedContent, toolResults) {
 			log.Printf("[Agent] Early stop condition met at step %d", step+1)
 			// Get final response
 			finalResp, err := a.getAIResponse(ctx, session)
 			if err != nil {
 				return session, "", fmt.Errorf("final AI response failed: %w", err)
 			}
+			finalCleaned := a.cleanToolCallTags(finalResp.Content)
 			session.AddMessage(ai.Message{
 				Role:    "assistant",
-				Content: finalResp.Content,
+				Content: finalCleaned,
 			})
-			return session, finalResp.Content, nil
+			return session, finalCleaned, nil
 		}
 	}
 
@@ -267,6 +280,116 @@ func (a *Agent) getToolDefinitions() []ai.ToolDefinition {
 	}
 	
 	return defs
+}
+
+// cleanToolCallTags removes XML tool call tags from content for cleaner display
+func (a *Agent) cleanToolCallTags(content string) string {
+	// Remove XML-like tool call tags
+	lines := strings.Split(content, "\n")
+	var cleanedLines []string
+	
+	inToolCall := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		
+		// Skip tool call tags
+		if strings.HasPrefix(trimmed, "<function=") && strings.HasSuffix(trimmed, ">") {
+			inToolCall = true
+			continue
+		}
+		if trimmed == "</function>" || trimmed == "</tool_call>" {
+			inToolCall = false
+			continue
+		}
+		if strings.HasPrefix(trimmed, "<parameter=") && strings.Contains(trimmed, ">") {
+			continue
+		}
+		
+		// Keep non-tool-call lines
+		if !inToolCall {
+			cleanedLines = append(cleanedLines, line)
+		}
+	}
+	
+	return strings.Join(cleanedLines, "\n")
+}
+
+// parseToolCallsFromText parses text-based tool calls like <function=name>...</function>
+func (a *Agent) parseToolCallsFromText(content string) []ai.ToolCall {
+	var toolCalls []ai.ToolCall
+	
+	// Look for patterns like <function=name>...</function>
+	// Example: <function=list_dir><parameter=path>~/git</parameter></function>
+	
+	// Simple regex-based parsing (could be more sophisticated)
+	lines := strings.Split(content, "\n")
+	inToolCall := false
+	var currentToolCall *ai.ToolCall
+	var currentArgs map[string]interface{}
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		
+		// Check for function start
+		if strings.HasPrefix(line, "<function=") && strings.HasSuffix(line, ">") {
+			inToolCall = true
+			// Extract function name
+			funcName := strings.TrimPrefix(line, "<function=")
+			funcName = strings.TrimSuffix(funcName, ">")
+			
+			currentToolCall = &ai.ToolCall{
+				ID:   fmt.Sprintf("call_%d", len(toolCalls)+1),
+				Name: funcName,
+				Args: make(map[string]interface{}),
+			}
+			currentArgs = currentToolCall.Args
+			continue
+		}
+		
+		// Check for parameter
+		if inToolCall && strings.HasPrefix(line, "<parameter=") && strings.Contains(line, ">") {
+			// Extract parameter name and value
+			paramLine := strings.TrimPrefix(line, "<parameter=")
+			parts := strings.SplitN(paramLine, ">", 2)
+			if len(parts) == 2 {
+				paramName := strings.TrimSuffix(parts[0], "</parameter")
+				paramValue := parts[1]
+				paramValue = strings.TrimSuffix(paramValue, "</parameter>")
+				currentArgs[paramName] = paramValue
+			}
+			continue
+		}
+		
+		// Check for function end
+		if inToolCall && line == "</function>" {
+			inToolCall = false
+			if currentToolCall != nil {
+				toolCalls = append(toolCalls, *currentToolCall)
+			}
+			currentToolCall = nil
+			currentArgs = nil
+			continue
+		}
+		
+		// Check for </tool_call> (alternative format)
+		if inToolCall && line == "</tool_call>" {
+			inToolCall = false
+			if currentToolCall != nil {
+				toolCalls = append(toolCalls, *currentToolCall)
+			}
+			currentToolCall = nil
+			currentArgs = nil
+			continue
+		}
+	}
+	
+	// If we're still in a tool call at the end, add it
+	if inToolCall && currentToolCall != nil {
+		toolCalls = append(toolCalls, *currentToolCall)
+	}
+	
+	log.Printf("[Agent] Parsed %d tool calls from text", len(toolCalls))
+	return toolCalls
 }
 
 // shouldStopEarly determines if we should stop execution early
