@@ -32,16 +32,27 @@ func (c *GatewayAICaller) Chat(ctx context.Context, req ai.ChatRequest) (*ai.Cha
 
 // AgentService manages agent sessions and tool execution via gateway
 type AgentService struct {
-	config     *config.Config
-	aiRouter   *AIRouter
-	tools      []agent.Tool
-	sessions   map[string]*agent.Session
-	sessionsMu sync.RWMutex
+	config       *config.Config
+	aiRouter     *AIRouter
+	tools        []agent.Tool
+	sessionStore *SessionStore
+	fallbackSessions map[string]*agent.Session
+	fallbackMu   sync.RWMutex
 }
 
 // NewAgentService creates a new agent service for the gateway
 func NewAgentService(cfg *config.Config) *AgentService {
 	aiRouter := NewAIRouter(cfg)
+	
+	// Create session store with persistence
+	sessionStore, err := NewSessionStore(&SessionStoreConfig{
+		DataDir: "/tmp/zen-claw-sessions",
+	})
+	if err != nil {
+		// Fallback to in-memory if persistence fails
+		log.Printf("Warning: Failed to create session store: %v", err)
+		sessionStore = nil
+	}
 	
 	// Create tools (working directory will be set per session)
 	tools := []agent.Tool{
@@ -52,10 +63,11 @@ func NewAgentService(cfg *config.Config) *AgentService {
 	}
 	
 	return &AgentService{
-		config:   cfg,
-		aiRouter: aiRouter,
-		tools:    tools,
-		sessions: make(map[string]*agent.Session),
+		config:       cfg,
+		aiRouter:     aiRouter,
+		tools:        tools,
+		sessionStore: sessionStore,
+		fallbackSessions: make(map[string]*agent.Session),
 	}
 }
 
@@ -129,10 +141,18 @@ func (s *AgentService) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 		}, nil // Return error in response, not as Go error
 	}
 	
-	// Update session in map
-	s.sessionsMu.Lock()
-	s.sessions[updatedSession.ID] = updatedSession
-	s.sessionsMu.Unlock()
+	// Save session
+	if s.sessionStore != nil {
+		// Save to persistent store
+		if err := s.sessionStore.SaveSession(updatedSession); err != nil {
+			log.Printf("Warning: Failed to save session %s: %v", updatedSession.ID, err)
+		}
+	} else {
+		// Save to fallback in-memory store
+		s.fallbackMu.Lock()
+		s.fallbackSessions[updatedSession.ID] = updatedSession
+		s.fallbackMu.Unlock()
+	}
 	
 	// Get session stats
 	stats := updatedSession.GetStats()
@@ -149,20 +169,29 @@ func (s *AgentService) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 
 // GetSession returns a session by ID
 func (s *AgentService) GetSession(sessionID string) (*agent.Session, bool) {
-	s.sessionsMu.RLock()
-	defer s.sessionsMu.RUnlock()
+	if s.sessionStore != nil {
+		return s.sessionStore.GetSession(sessionID)
+	}
 	
-	session, exists := s.sessions[sessionID]
+	// Fallback to in-memory
+	s.fallbackMu.RLock()
+	defer s.fallbackMu.RUnlock()
+	session, exists := s.fallbackSessions[sessionID]
 	return session, exists
 }
 
 // ListSessions returns all sessions
 func (s *AgentService) ListSessions() []agent.SessionStats {
-	s.sessionsMu.RLock()
-	defer s.sessionsMu.RUnlock()
+	if s.sessionStore != nil {
+		return s.sessionStore.ListSessions()
+	}
+	
+	// Fallback to in-memory
+	s.fallbackMu.RLock()
+	defer s.fallbackMu.RUnlock()
 	
 	var stats []agent.SessionStats
-	for _, session := range s.sessions {
+	for _, session := range s.fallbackSessions {
 		stats = append(stats, session.GetStats())
 	}
 	return stats
@@ -170,11 +199,16 @@ func (s *AgentService) ListSessions() []agent.SessionStats {
 
 // DeleteSession deletes a session
 func (s *AgentService) DeleteSession(sessionID string) bool {
-	s.sessionsMu.Lock()
-	defer s.sessionsMu.Unlock()
+	if s.sessionStore != nil {
+		return s.sessionStore.DeleteSession(sessionID)
+	}
 	
-	if _, exists := s.sessions[sessionID]; exists {
-		delete(s.sessions, sessionID)
+	// Fallback to in-memory
+	s.fallbackMu.Lock()
+	defer s.fallbackMu.Unlock()
+	
+	if _, exists := s.fallbackSessions[sessionID]; exists {
+		delete(s.fallbackSessions, sessionID)
 		return true
 	}
 	return false
@@ -182,16 +216,24 @@ func (s *AgentService) DeleteSession(sessionID string) bool {
 
 // getOrCreateSession gets an existing session or creates a new one
 func (s *AgentService) getOrCreateSession(sessionID string) *agent.Session {
-	s.sessionsMu.RLock()
-	session, exists := s.sessions[sessionID]
-	s.sessionsMu.RUnlock()
-	
-	if exists {
-		return session
+	// Try to get existing session
+	if s.sessionStore != nil {
+		if session, exists := s.sessionStore.GetSession(sessionID); exists {
+			return session
+		}
+	} else {
+		// Fallback to in-memory
+		s.fallbackMu.RLock()
+		session, exists := s.fallbackSessions[sessionID]
+		s.fallbackMu.RUnlock()
+		
+		if exists {
+			return session
+		}
 	}
 	
 	// Create new session
-	session = agent.NewSession(sessionID)
+	session := agent.NewSession(sessionID)
 	
 	// Add system message to guide the AI
 	session.AddMessage(ai.Message{
@@ -219,9 +261,12 @@ TOOLS:
 Respond with your analysis and use tools when needed. When the task is complete, indicate this clearly with words like "Conclusion:", "Summary:", or "Analysis complete:".`,
 	})
 	
-	s.sessionsMu.Lock()
-	s.sessions[sessionID] = session
-	s.sessionsMu.Unlock()
+	// Store in fallback if no persistent store
+	if s.sessionStore == nil {
+		s.fallbackMu.Lock()
+		s.fallbackSessions[sessionID] = session
+		s.fallbackMu.Unlock()
+	}
 	
 	return session
 }
