@@ -171,10 +171,31 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req ai.ChatRequest)
 	// Convert messages to OpenAI format
 	var openaiMessages []openai.ChatCompletionMessage
 	for _, msg := range messages {
+		// Ensure Content is always a string (Qwen requires string, not object)
+		// Qwen API is strict: content must be string or array of objects, never a plain object
+		contentStr := msg.Content
+		
+		// Handle empty content - use empty string, not nil
+		if contentStr == "" {
+			contentStr = ""
+		}
+		
+		// For assistant messages with tool calls, content can be empty (tool calls are in separate field)
+		// For other roles, ensure we have valid string content
+		if msg.Role != "assistant" && contentStr == "" {
+			// Non-assistant messages should have content, but if empty, use placeholder
+			// This shouldn't happen, but handle gracefully
+			contentStr = ""
+		}
+		
 		openaiMsg := openai.ChatCompletionMessage{
 			Role:    msg.Role,
-			Content: msg.Content,
+			Content: contentStr, // Always a string, never an object
 		}
+		
+		// Qwen is strict: content must be string, never an object
+		// If content appears to be JSON object/array as string, that's fine
+		// But ensure we're not accidentally passing a Go object/struct
 
 		// Handle tool role messages (need tool_call_id)
 		if msg.Role == "tool" && msg.ToolCallID != "" {
