@@ -159,28 +159,9 @@ func (a *Agent) Run(ctx context.Context, session *Session, userInput string) (*S
 
 // getAIResponse gets a response from the AI caller with session messages
 func (a *Agent) getAIResponse(ctx context.Context, session *Session) (*ai.ChatResponse, error) {
-	// Get current messages
-	allMessages := session.GetMessages()
-	
-	// Limit context window to last 20 messages to avoid token overflow
-	// Keep system messages and recent conversation
-	var messages []ai.Message
-	systemMessages := 0
-	
-	for _, msg := range allMessages {
-		if msg.Role == "system" {
-			messages = append(messages, msg)
-			systemMessages++
-		}
-	}
-	
-	// Add recent messages (last 20 - system messages)
-	recentCount := 20 - systemMessages
-	if recentCount > 0 && len(allMessages) > recentCount {
-		messages = append(messages, allMessages[len(allMessages)-recentCount:]...)
-	} else {
-		messages = allMessages
-	}
+	// Get all messages - use full context window for large context models
+	// Models like Qwen 3 Coder (262K), Gemini 3 Flash (1M) can handle long conversations
+	messages := session.GetMessages()
 	
 	// Convert tools to AI tool definitions
 	toolDefs := a.getToolDefinitions()
@@ -194,8 +175,9 @@ func (a *Agent) getAIResponse(ctx context.Context, session *Session) (*ai.ChatRe
 		MaxTokens:   2000,
 	}
 
-	// Get response with timeout
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	// Get response with timeout - increased for large context models
+	// Large context windows (262K+ tokens) take longer to process
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
 	return a.aiCaller.Chat(ctx, req)
