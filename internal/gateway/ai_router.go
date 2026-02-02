@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
 	"github.com/neves/zen-claw/internal/ai"
@@ -35,10 +34,10 @@ func NewAIRouter(cfg *config.Config) *AIRouter {
 		"qwen":     cfg.Providers.Qwen,
 	}
 	
-	for name, providerCfg := range providerConfigs {
-		// Skip if API key is empty or template
-		if providerCfg.APIKey == "" || 
-		   strings.HasPrefix(providerCfg.APIKey, "${") {
+	for name, _ := range providerConfigs {
+		// Skip if no API key available (check config and env vars)
+		apiKey := cfg.GetAPIKey(name)
+		if apiKey == "" {
 			continue
 		}
 		

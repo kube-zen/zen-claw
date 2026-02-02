@@ -201,34 +201,15 @@ func (s *AgentService) getOrCreateSession(sessionID string) *agent.Session {
 
 // GetAvailableProviders returns available AI providers
 func (s *AgentService) GetAvailableProviders() []string {
-	// Check which providers have API keys
+	// Check which providers have API keys (including environment variables)
 	var available []string
 	
-	// DeepSeek
-	if s.config.Providers.DeepSeek.APIKey != "" {
-		available = append(available, "deepseek")
-	}
+	providers := []string{"deepseek", "glm", "minimax", "openai", "qwen"}
 	
-	// GLM
-	if s.config.Providers.GLM.APIKey != "" {
-		available = append(available, "glm")
-	}
-	
-	// Minimax
-	if s.config.Providers.Minimax.APIKey != "" {
-		available = append(available, "minimax")
-	}
-	
-	// OpenAI (check env var)
-	if s.config.Providers.OpenAI.APIKey != "${OPENAI_API_KEY}" {
-		// API key is set (not the template)
-		available = append(available, "openai")
-	}
-	
-	// Qwen (check env var)
-	if s.config.Providers.Qwen.APIKey != "${QWEN_API_KEY}" {
-		// API key is set (not the template)
-		available = append(available, "qwen")
+	for _, provider := range providers {
+		if s.config.GetAPIKey(provider) != "" {
+			available = append(available, provider)
+		}
 	}
 	
 	return available
