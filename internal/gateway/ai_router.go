@@ -101,17 +101,21 @@ func (r *AIRouter) Chat(ctx context.Context, req ai.ChatRequest, preferredProvid
 
 // getProviderChain returns provider chain based on preference and cost optimization
 func (r *AIRouter) getProviderChain(preferred string) []string {
-	// Start with preferred provider if specified and available
-	chain := []string{}
+	// If a specific provider is requested, use only that provider
+	// Don't fallback to other providers with wrong model names
 	if preferred != "" {
 		if _, exists := r.providers[preferred]; exists {
-			chain = append(chain, preferred)
+			return []string{preferred}
 		}
+		// If requested provider doesn't exist, fall through to default
 	}
 	
-	// Add default provider if not already in chain
+	// No specific provider requested, use cost-optimized chain
+	chain := []string{}
+	
+	// Start with default provider if available
 	defaultProvider := r.config.Default.Provider
-	if defaultProvider != "" && defaultProvider != preferred {
+	if defaultProvider != "" {
 		if _, exists := r.providers[defaultProvider]; exists {
 			chain = append(chain, defaultProvider)
 		}
