@@ -1,0 +1,92 @@
+#!/bin/bash
+
+# Zen Claw Multi-Provider Setup Script
+# Creates a Byobu session with Qwen and DeepSeek running in separate panes
+
+SESSION_NAME="zen-work"
+QWEN_WINDOW_NAME="zen-qwen"
+DEEPSEEK_WINDOW_NAME="zen-deepseek"
+
+echo "Setting up Zen Claw multi-provider session..."
+echo "Session: $SESSION_NAME"
+echo "Windows: $QWEN_WINDOW_NAME, $DEEPSEEK_WINDOW_NAME"
+echo ""
+
+# Check if Byobu is available
+if ! command -v byobu &> /dev/null; then
+    echo "❌ Byobu is not installed or not in PATH"
+    echo "Please install Byobu first: sudo apt install byobu (Ubuntu/Debian)"
+    exit 1
+fi
+
+# Check if zen-claw binary exists locally
+ZEN_CLAW_PATH="./zen-claw"
+if [[ ! -f "$ZEN_CLAW_PATH" ]]; then
+    echo "ℹ️  zen-claw binary not found at $ZEN_CLAW_PATH"
+    echo "This is expected if Go is not installed in this environment."
+    echo "The script will work when zen-claw is built locally."
+    echo ""
+    echo "To build zen-claw manually, run:"
+    echo "  go build -o zen-claw ."
+    echo ""
+fi
+
+# Create new Byobu session
+echo "Creating Byobu session: $SESSION_NAME"
+byobu new-session -d -s "$SESSION_NAME"
+
+# Create Qwen window - use a more robust approach
+echo "Creating Qwen window: $QWEN_WINDOW_NAME"
+byobu new-window -t "$SESSION_NAME":"$QWEN_WINDOW_NAME" -n "$QWEN_WINDOW_NAME" bash -c "echo 'Starting Qwen session...'; ./zen-claw --provider qwen; echo 'Qwen session ended. Press Enter to close...'; read"
+
+# Create DeepSeek window - use a more robust approach  
+echo "Creating DeepSeek window: $DEEPSEEK_WINDOW_NAME"
+byobu new-window -t "$SESSION_NAME":"$DEEPSEEK_WINDOW_NAME" -n "$DEEPSEEK_WINDOW_NAME" bash -c "echo 'Starting DeepSeek session...'; ./zen-claw --provider deepseek; echo 'DeepSeek session ended. Press Enter to close...'; read"
+
+# Set up initial layout (split horizontally)
+echo "Setting up layout..."
+byobu select-window -t "$SESSION_NAME"
+byobu split-window -h -p 50
+
+# Send initial commands to panes
+byobu select-pane -t 0
+byobu send-keys "echo 'Qwen Session - Ready'" Enter
+
+byobu select-pane -t 1
+byobu send-keys "echo 'DeepSeek Session - Ready'" Enter
+
+# Rename windows for clarity
+byobu select-pane -t 0
+byobu rename-window "$QWEN_WINDOW_NAME"
+
+byobu select-pane -t 1
+byobu rename-window "$DEEPSEEK_WINDOW_NAME"
+
+# Attach to the session
+echo ""
+echo "✅ Session setup complete!"
+echo "Session Name: $SESSION_NAME"
+echo "Windows:"
+echo "  1. $QWEN_WINDOW_NAME (Qwen)"
+echo "  2. $DEEPSEEK_WINDOW_NAME (DeepSeek)"
+echo ""
+echo "To attach to this session later:"
+echo "  byobu attach -t $SESSION_NAME"
+echo ""
+echo "Navigation:"
+echo "  F2: Create new session window"
+echo "  F3: Previous window (left)" 
+echo "  F4: Next window (right)"
+echo "  F8: Rename current window"
+echo ""
+echo "In each session, you can use:"
+echo "  /models - List available models"
+echo "  /model <model-name> - Switch models during session"
+echo ""
+echo "⚠️  Note: Make sure to build zen-claw first with:"
+echo "     go build -o zen-claw ."
+echo ""
+echo "Enjoy your multi-provider Zen Claw workflow!"
+
+# Attach to the session automatically
+byobu attach -t "$SESSION_NAME"
