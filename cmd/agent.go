@@ -21,6 +21,7 @@ func newAgentCmd() *cobra.Command {
 	var sessionID string
 	var showProgress bool
 	var maxSteps int
+	var verbose bool
 	
 	cmd := &cobra.Command{
 		Use:   "agent",
@@ -48,11 +49,14 @@ Examples:
   # Show progress in console
   zen-claw agent --progress "list directory"
   
+  # Run with verbose output for debugging
+  zen-claw agent --verbose "debug this issue"
+  
   # Continue session from another client (future):
   # Use same session ID in Slack/Telegram bot`,
 		Args: cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			runAgent(args[0], model, provider, workingDir, sessionID, showProgress, maxSteps)
+			runAgent(args[0], model, provider, workingDir, sessionID, showProgress, maxSteps, verbose)
 		},
 	}
 	
@@ -62,11 +66,16 @@ Examples:
 	cmd.Flags().StringVar(&sessionID, "session-id", "", "Session ID (for continuing sessions)")
 	cmd.Flags().BoolVar(&showProgress, "progress", false, "Show progress in console (CLI only)")
 	cmd.Flags().IntVar(&maxSteps, "max-steps", 10, "Maximum tool execution steps")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Enable verbose output for debugging")
 	
 	return cmd
 }
 
-func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int) {
+func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool) {
+	if verbose {
+		fmt.Println("🔧 Verbose mode enabled")
+	}
+	
 	if showProgress {
 		fmt.Println("🚀 Zen Agent - Lightweight (with console progress)")
 	} else {
@@ -83,6 +92,10 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 	cfg, err := config.LoadConfig("")
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
+	}
+	
+	if verbose {
+		fmt.Printf("Loaded config from: %s\n", config.DefaultConfigPath())
 	}
 	
 	// Determine provider and model
@@ -106,6 +119,10 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 	aiProvider, err := factory.CreateProvider(providerName)
 	if err != nil {
 		log.Fatalf("Failed to create provider %s: %v", providerName, err)
+	}
+	
+	if verbose {
+		fmt.Printf("Using AI provider: %s\n", aiProvider.Name())
 	}
 	
 	// Create tools
@@ -139,6 +156,14 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 	
 	if err != nil {
 		fmt.Printf("\n❌ Agent execution failed: %v\n", err)
+		if verbose {
+			fmt.Printf("Detailed error information:\n")
+			fmt.Printf("  - Task: %s\n", task)
+			fmt.Printf("  - Provider: %s\n", providerName)
+			fmt.Printf("  - Model: %s\n", modelName)
+			fmt.Printf("  - Working directory: %s\n", workingDir)
+			fmt.Printf("  - Session ID: %s\n", sessionID)
+		}
 		os.Exit(1)
 	}
 	

@@ -16,17 +16,17 @@ func newSessionCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List active sessions",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("Sessions feature coming soon")
-		},
-	})
-
-	cmd.AddCommand(&cobra.Command{
-		Use:   "spawn",
-		Short: "Spawn a sub-agent session",
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("Sub-agent spawning coming soon")
+			fmt.Println("Session listing coming soon")
 		},
 	})
 
 	return cmd
+}
+
+// Helper function to truncate strings for display
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
 }

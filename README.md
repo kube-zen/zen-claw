@@ -22,22 +22,20 @@ zen-claw/
 └── go.mod         # Go module
 ```
 
-## Core Features (Planned)
-
-1. **AI Agent**: Run AI sessions with tool access
-2. **Tool System**: Read, write, exec, edit, etc.
-3. **Session Management**: Track and resume conversations
-4. **Gateway**: WebSocket server for remote access
-5. **Memory**: Persistent context across sessions
-
 ## Quick Start
 
 ```bash
 # Build (when Go is installed)
 go build -o zen-claw .
 
-# Run agent
-./zen-claw agent --model deepseek/deepseek-chat
+# Run agent with default provider
+./zen-claw agent "analyze project"
+
+# Run agent with Qwen specifically
+./zen-claw agent --provider qwen "analyze codebase"
+
+# Run agent with specific Qwen model
+./zen-claw agent --model qwen/qwen3-coder-30b "code review"
 
 # List tools
 ./zen-claw tools
@@ -45,21 +43,34 @@ go build -o zen-claw .
 # Manage sessions
 ./zen-claw session list
 
-# Use gateway with arbitration
-./zen-claw gateway start
-./zen-claw agent --gateway
+# Use verbose mode for debugging
+./zen-claw agent --verbose "debug this issue"
 ```
 
-## Supported AI Providers
+## Core Features
 
-Zen Claw supports multiple AI providers with automatic failover:
+### AI Agent
+- Run AI sessions with tool access
+- Automatic tool chaining
+- Conversation continuation
+- Multi-provider support (DeepSeek, OpenAI, Qwen, etc.)
 
-1. **DeepSeek** (default, cheapest) - `deepseek/deepseek-chat` ($0.14/1M tokens)
-2. **OpenAI** - `openai/gpt-4o`, `openai/gpt-4-turbo` ($5/1M tokens)
-3. **GLM** (智谱清言) - `glm/glm-4`, `glm/glm-3-turbo`
-4. **Minimax** - `minimax/abab6.5s`, `minimax/abab6.5`
-5. **Qwen** (Alibaba) - `qwen/qwen-max`, `qwen/qwen-plus`, `qwen/qwen3-coder-30b`
-6. **Mock** (for testing) - Always works
+### Tool System
+- **Read**: Read file contents
+- **Write**: Create or overwrite files  
+- **Edit**: Make precise edits to files
+- **Exec**: Run shell commands
+- **File Search**: Find files by name or content
+- **Git Operations**: Git status, diff, log, etc.
+- **Environment**: Manage environment variables
+
+### Session Management
+- Persistent conversation state
+- Session ID tracking
+- Session tagging for organization
+- Session export capability
+
+## Qwen Integration
 
 ### 🎯 **Qwen3-Coder-30B Special Feature**
 **📚 262K Context Window** - The only dedicated coder model with massive context under $1!
@@ -67,11 +78,33 @@ Zen Claw supports multiple AI providers with automatic failover:
 - **$0.538** even at 200K tokens
 - **Perfect for**: Analyzing massive legacy codebases, providing 50-file context for architecture decisions
 
-### Provider Arbitration
-- **Cost-optimized**: Tries cheapest providers first
-- **Automatic failover**: If one provider fails, tries next
-- **User override**: Say `provider: openai` to force specific provider
-- **Consensus voting**: Coming soon (ask multiple providers, take majority vote)
+## Configuration
+
+Zen Claw comes with sensible defaults. Configure via environment variables or config file:
+
+```bash
+# Environment variables
+export QWEN_API_KEY="your-qwen-api-key-here"
+export DEEPSEEK_API_KEY="your-deepseek-api-key-here"
+
+# Or create config file: ~/.zen/zen-claw/config.yaml
+providers:
+  qwen:
+    api_key: "${QWEN_API_KEY}"
+    model: "qwen3-coder-30b"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  deepseek:
+    api_key: "${DEEPSEEK_API_KEY}"
+    model: "deepseek-chat"
+
+default:
+  provider: "qwen"
+  model: "qwen3-coder-30b"
+  thinking: false
+
+workspace:
+  path: "~/.zen/zen-claw/workspace"
+```
 
 ## Development Philosophy
 
@@ -81,10 +114,10 @@ Zen Claw supports multiple AI providers with automatic failover:
 4. **Document as you go**: README and comments are mandatory
 5. **Test in production**: Actually use what you build
 
-## Status
+## Private Testing Notes
 
-🚧 **Work in Progress** - Core structure implemented, AI integration pending.
+This is designed for private/internal use. No OSS considerations, just pure functionality evaluation.
 
 ## License
 
-MIT
+MIT (private use only)

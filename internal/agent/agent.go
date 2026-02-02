@@ -7,13 +7,14 @@ import (
 	"time"
 
 	"github.com/neves/zen-claw/internal/ai"
+	"github.com/neves/zen-claw/internal/session"
 )
 
 // Agent represents an AI agent that can execute tools and continue conversations
 type Agent struct {
 	provider   ai.Provider
 	tools      map[string]Tool
-	session    *Session
+	session    *session.Session
 	workingDir string
 	maxSteps   int // Maximum tool execution steps to prevent infinite loops
 }
@@ -40,15 +41,15 @@ func NewAgent(cfg Config) *Agent {
 	}
 
 	// Create session
-	session := NewSession(cfg.SessionID)
+	sess := session.NewSession(cfg.SessionID)
 	if cfg.WorkingDir != "" {
-		session.SetWorkingDir(cfg.WorkingDir)
+		sess.SetWorkingDir(cfg.WorkingDir)
 	}
 
 	return &Agent{
 		provider:   cfg.Provider,
 		tools:      tools,
-		session:    session,
+		session:    sess,
 		workingDir: cfg.WorkingDir,
 		maxSteps:   cfg.MaxSteps,
 	}
@@ -59,9 +60,10 @@ func (a *Agent) Run(ctx context.Context, userInput string) (string, error) {
 	log.Printf("[Agent] Running: %s", userInput)
 	
 	// Add user message to session
-	a.session.AddMessage(ai.Message{
+	a.session.AddMessage(session.Message{
 		Role:    "user",
 		Content: userInput,
+		Time:    time.Now(),
 	})
 
 	// Execute agent loop
@@ -71,15 +73,16 @@ func (a *Agent) Run(ctx context.Context, userInput string) (string, error) {
 		// Get AI response
 		resp, err := a.getAIResponse(ctx)
 		if err != nil {
-			return "", fmt.Errorf("AI response failed: %w", err)
+			return "", fmt.Errorf("AI response failed on step %d: %w", step+1, err)
 		}
 
 		// If no tool calls, we're done
 		if len(resp.ToolCalls) == 0 {
 			log.Printf("[Agent] No tool calls, returning final response")
-			a.session.AddMessage(ai.Message{
+			a.session.AddMessage(session.Message{
 				Role:    "assistant",
 				Content: resp.Content,
+				Time:    time.Now(),
 			})
 			return resp.Content, nil
 		}
@@ -89,22 +92,22 @@ func (a *Agent) Run(ctx context.Context, userInput string) (string, error) {
 		// Execute all tool calls
 		toolResults, err := a.executeToolCalls(ctx, resp.ToolCalls)
 		if err != nil {
-			return "", fmt.Errorf("tool execution failed: %w", err)
+			return "", fmt.Errorf("tool execution failed on step %d: %w", step+1, err)
 		}
 
 		// Add assistant message with tool calls (for conversation history)
-		a.session.AddMessage(ai.Message{
-			Role:      "assistant",
-			Content:   resp.Content,
-			ToolCalls: resp.ToolCalls,
+		a.session.AddMessage(session.Message{
+			Role:    "assistant",
+			Content: resp.Content,
+			Time:    time.Now(),
 		})
 
 		// Add tool results to session
 		for _, result := range toolResults {
-			a.session.AddMessage(ai.Message{
-				Role:       "tool",
-				Content:    result.Content,
-				ToolCallID: result.ToolCallID,
+			a.session.AddMessage(session.Message{
+				Role:    "tool",
+				Content: result.Content,
+				Time:    time.Now(),
 			})
 		}
 
@@ -124,7 +127,7 @@ func (a *Agent) getAIResponse(ctx context.Context) (*ai.ChatResponse, error) {
 	
 	// Create chat request
 	req := ai.ChatRequest{
-		Model:       "deepseek-chat", // TODO: Make configurable
+		Model:       a.provider.Name() + "/default", // Use provider name as default model
 		Messages:    messages,
 		Tools:       toolDefs,
 		Temperature: 0.7,
@@ -135,7 +138,12 @@ func (a *Agent) getAIResponse(ctx context.Context) (*ai.ChatResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	return a.provider.Chat(ctx, req)
+	response, err := a.provider.Chat(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("AI provider %s failed: %w", a.provider.Name(), err)
+	}
+
+	return response, nil
 }
 
 // ToolResult represents the result of a tool execution

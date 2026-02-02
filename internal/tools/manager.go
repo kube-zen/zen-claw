@@ -44,6 +44,9 @@ func (m *Manager) registerCoreTools() {
 	m.tools["edit"] = &EditTool{workspace: m.config.Workspace}
 	m.tools["exec"] = &ExecTool{}
 	m.tools["process"] = &ProcessTool{}
+	m.tools["filesearch"] = &FileSearchTool{workspace: m.config.Workspace}
+	m.tools["git"] = &GitTool{}
+	m.tools["env"] = &EnvTool{}
 }
 
 func (m *Manager) List() []string {
