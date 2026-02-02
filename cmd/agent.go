@@ -226,10 +226,12 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 	fmt.Println("═" + strings.Repeat("═", 78))
 	fmt.Println("Entering interactive mode. Type your tasks, one per line.")
 	fmt.Println("Special commands:")
-	fmt.Println("  /models     - List available models")
-	fmt.Println("  /model <name> - Switch to a different model")
-	fmt.Println("  /exit, /quit - Exit interactive mode")
-	fmt.Println("  /help       - Show this help")
+	fmt.Println("  /providers          - List available AI providers")
+	fmt.Println("  /provider <name>    - Switch to a specific provider")
+	fmt.Println("  /models            - List models for current provider")
+	fmt.Println("  /model <name>      - Switch model within current provider")
+	fmt.Println("  /exit, /quit       - Exit interactive mode")
+	fmt.Println("  /help              - Show this help")
 	fmt.Println("═" + strings.Repeat("═", 78))
 	
 	if sessionID != "" {
@@ -309,38 +311,101 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			return
 		case input == "/help":
 			fmt.Println("Special commands:")
-			fmt.Println("  /models     - List available models")
-			fmt.Println("  /model <name> - Switch to a different model")
-			fmt.Println("  /exit, /quit - Exit interactive mode")
-			fmt.Println("  /help       - Show this help")
+			fmt.Println("  /providers          - List available AI providers")
+			fmt.Println("  /provider <name>    - Switch to a specific provider")
+			fmt.Println("  /models            - List models for current provider")
+			fmt.Println("  /model <name>      - Switch model within current provider")
+			fmt.Println("  /exit, /quit       - Exit interactive mode")
+			fmt.Println("  /help              - Show this help")
+			continue
+		case input == "/providers":
+			fmt.Println("Available providers:")
+			fmt.Println("  - deepseek  (default)")
+			fmt.Println("  - qwen")
+			fmt.Println("  - glm")
+			fmt.Println("  - minimax")
+			fmt.Println("  - openai")
+			fmt.Println("\nUse '/provider <provider-name>' to switch providers")
+			fmt.Println("Each provider has its own models. Use '/models' to see models for current provider.")
+			continue
+		case strings.HasPrefix(input, "/provider "):
+			newProvider := strings.TrimSpace(strings.TrimPrefix(input, "/provider "))
+			
+			// Validate provider
+			validProviders := []string{"deepseek", "qwen", "glm", "minimax", "openai"}
+			isValid := false
+			for _, p := range validProviders {
+				if p == newProvider {
+					isValid = true
+					break
+				}
+			}
+			
+			if !isValid {
+				fmt.Printf("Unknown provider: %s. Valid providers: %v\n", newProvider, validProviders)
+				continue
+			}
+			
+			providerName = newProvider
+			
+			// Reset to default model for this provider
+			switch providerName {
+			case "deepseek":
+				modelName = "deepseek-chat"
+			case "qwen":
+				modelName = "qwen3-coder-30b-a3b-instruct"
+			case "glm":
+				modelName = "glm-4.7"
+			case "minimax":
+				modelName = "minimax-M2.1"
+			case "openai":
+				modelName = "gpt-4o-mini"
+			}
+			
+			fmt.Printf("Switched to provider: %s (model: %s)\n", providerName, modelName)
 			continue
 		case input == "/models":
-			// This would need to query available models from gateway
-			fmt.Println("Available models:")
-			fmt.Println("  - deepseek-chat")
-			fmt.Println("  - qwen3-coder-30b-a3b-instruct")
-			fmt.Println("  - qwen-plus")
-			fmt.Println("  - qwen-max")
-			fmt.Println("  - gpt-4o")
-			fmt.Println("  - gpt-4-turbo")
-			fmt.Println("  - glm-4")
-			fmt.Println("  - glm-3-turbo")
-			fmt.Println("  - abab6.5s")
-			fmt.Println("  - abab6.5")
-			fmt.Println("\nUse '/model <model-name>' to switch models")
+			// Show models for current provider
+			fmt.Printf("Models for provider '%s':\n", providerName)
+			switch providerName {
+			case "deepseek":
+				fmt.Println("  - deepseek-chat (default)")
+				fmt.Println("  - deepseek-reasoner")
+			case "qwen":
+				fmt.Println("  - qwen3-coder-30b-a3b-instruct (default)")
+				fmt.Println("  - qwen-plus")
+				fmt.Println("  - qwen-max")
+				fmt.Println("  - qwen3-235b-a22b-instruct-2507")
+				fmt.Println("  - qwen3-coder-480b-a35b-instruct")
+			case "glm":
+				fmt.Println("  - glm-4.7 (default)")
+				fmt.Println("  - glm-4")
+				fmt.Println("  - glm-3-turbo")
+			case "minimax":
+				fmt.Println("  - minimax-M2.1 (default)")
+				fmt.Println("  - abab6.5s")
+				fmt.Println("  - abab6.5")
+			case "openai":
+				fmt.Println("  - gpt-4o-mini (default)")
+				fmt.Println("  - gpt-4o")
+				fmt.Println("  - gpt-4-turbo")
+				fmt.Println("  - gpt-3.5-turbo")
+			default:
+				fmt.Println("  (Unknown provider)")
+			}
+			fmt.Println("\nUse '/model <model-name>' to switch models within current provider")
 			continue
 		case strings.HasPrefix(input, "/model "):
 			newModel := strings.TrimSpace(strings.TrimPrefix(input, "/model "))
 			modelName = newModel
 			
-			// Also update provider based on model name
-			newProvider := inferProviderFromModel(newModel)
-			if newProvider != "" {
-				providerName = newProvider
-				fmt.Printf("Model switched to: %s (provider: %s)\n", modelName, providerName)
-			} else {
-				fmt.Printf("Model switched to: %s (using current provider: %s)\n", modelName, providerName)
+			// Verify model is compatible with current provider
+			if !isModelCompatibleWithProvider(newModel, providerName) {
+				fmt.Printf("Warning: Model '%s' may not be compatible with provider '%s'\n", newModel, providerName)
+				fmt.Printf("Consider switching provider first with '/provider <provider-name>'\n")
 			}
+			
+			fmt.Printf("Model switched to: %s (provider: %s)\n", modelName, providerName)
 			continue
 		}
 		
@@ -398,4 +463,26 @@ func inferProviderFromModel(modelName string) string {
 	
 	// Could not infer provider
 	return ""
+}
+
+// isModelCompatibleWithProvider checks if a model is likely compatible with a provider
+func isModelCompatibleWithProvider(modelName, provider string) bool {
+	modelName = strings.ToLower(modelName)
+	provider = strings.ToLower(provider)
+	
+	switch provider {
+	case "qwen":
+		return strings.Contains(modelName, "qwen")
+	case "deepseek":
+		return strings.Contains(modelName, "deepseek")
+	case "glm":
+		return strings.Contains(modelName, "glm")
+	case "minimax":
+		return strings.Contains(modelName, "minimax") || strings.Contains(modelName, "abab")
+	case "openai":
+		return strings.Contains(modelName, "gpt")
+	}
+	
+	// Unknown provider, assume compatible
+	return true
 }
