@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -99,14 +100,21 @@ func (s *AgentService) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 		session.SetWorkingDir(req.WorkingDir)
 	}
 	
-	// Determine provider
+	// Determine provider and model
 	providerName := req.Provider
+	modelName := req.Model
+	
+	// If model is specified but provider isn't, try to infer provider from model name
+	if modelName != "" && providerName == "" {
+		providerName = s.inferProviderFromModel(modelName)
+	}
+	
+	// If provider still not determined, use default
 	if providerName == "" {
 		providerName = s.config.Default.Provider
 	}
 	
-	// Determine model
-	modelName := req.Model
+	// If model not specified, use default for provider
 	if modelName == "" {
 		modelName = s.config.GetModel(providerName)
 	}
@@ -295,4 +303,25 @@ func (s *AgentService) GetAvailableProviders() []string {
 	}
 	
 	return available
+}
+
+// inferProviderFromModel tries to infer provider from model name
+func (s *AgentService) inferProviderFromModel(modelName string) string {
+	modelName = strings.ToLower(modelName)
+	
+	// Check for provider patterns in model name
+	if strings.Contains(modelName, "qwen") {
+		return "qwen"
+	} else if strings.Contains(modelName, "deepseek") {
+		return "deepseek"
+	} else if strings.Contains(modelName, "glm") {
+		return "glm"
+	} else if strings.Contains(modelName, "minimax") || strings.Contains(modelName, "abab") {
+		return "minimax"
+	} else if strings.Contains(modelName, "gpt") {
+		return "openai"
+	}
+	
+	// Default to empty (will use default provider)
+	return ""
 }

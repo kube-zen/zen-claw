@@ -112,13 +112,21 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 		fmt.Println("✓ Gateway is healthy")
 	}
 	
-	// Determine provider and model
+	// Determine provider and model - in runAgent function
 	providerName := providerFlag
+	modelName := modelFlag
+	
+	// If model is specified but provider isn't, try to infer provider from model
+	if modelName != "" && providerName == "" {
+		providerName = inferProviderFromModel(modelName)
+	}
+	
+	// If provider still not determined, use default
 	if providerName == "" {
 		providerName = "deepseek" // Default
 	}
 	
-	modelName := modelFlag
+	// If model not specified, use default for provider
 	if modelName == "" {
 		// Default models per provider
 		switch providerName {
@@ -239,13 +247,21 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 		return
 	}
 	
-	// Determine provider and model
+	// Determine provider and model - in runInteractiveMode function
 	providerName := providerFlag
+	modelName := modelFlag
+	
+	// If model is specified but provider isn't, try to infer provider from model
+	if modelName != "" && providerName == "" {
+		providerName = inferProviderFromModel(modelName)
+	}
+	
+	// If provider still not determined, use default
 	if providerName == "" {
 		providerName = "deepseek" // Default
 	}
 	
-	modelName := modelFlag
+	// If model not specified, use default for provider
 	if modelName == "" {
 		// Default models per provider
 		switch providerName {
@@ -316,7 +332,15 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 		case strings.HasPrefix(input, "/model "):
 			newModel := strings.TrimSpace(strings.TrimPrefix(input, "/model "))
 			modelName = newModel
-			fmt.Printf("Model switched to: %s\n", modelName)
+			
+			// Also update provider based on model name
+			newProvider := inferProviderFromModel(newModel)
+			if newProvider != "" {
+				providerName = newProvider
+				fmt.Printf("Model switched to: %s (provider: %s)\n", modelName, providerName)
+			} else {
+				fmt.Printf("Model switched to: %s (using current provider: %s)\n", modelName, providerName)
+			}
 			continue
 		}
 		
@@ -353,4 +377,25 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 		// Update session ID for continuation
 		sessionID = resp.SessionID
 	}
+}
+
+// inferProviderFromModel tries to infer provider from model name
+func inferProviderFromModel(modelName string) string {
+	modelName = strings.ToLower(modelName)
+	
+	// Check for provider patterns in model name
+	if strings.Contains(modelName, "qwen") {
+		return "qwen"
+	} else if strings.Contains(modelName, "deepseek") {
+		return "deepseek"
+	} else if strings.Contains(modelName, "glm") {
+		return "glm"
+	} else if strings.Contains(modelName, "minimax") || strings.Contains(modelName, "abab") {
+		return "minimax"
+	} else if strings.Contains(modelName, "gpt") {
+		return "openai"
+	}
+	
+	// Could not infer provider
+	return ""
 }
