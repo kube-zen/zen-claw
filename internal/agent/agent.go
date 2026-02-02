@@ -31,6 +31,15 @@ type Agent struct {
 	tools    map[string]Tool
 	maxSteps int
 	currentModel string
+	events   chan AgentEvent // Channel for progress events
+}
+
+// AgentEvent represents a progress event during agent execution
+type AgentEvent struct {
+	Type    string      `json:"type"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data,omitempty"`
+	Step    int         `json:"step,omitempty"`
 }
 
 // NewAgent creates a new agent
@@ -46,6 +55,7 @@ func NewAgent(aiCaller AICaller, tools []Tool, maxSteps int) *Agent {
 		tools:    toolMap,
 		maxSteps: maxSteps,
 		currentModel: "deepseek-chat", // Default model
+		events:   make(chan AgentEvent, 100), // Buffered channel for events
 	}
 }
 
@@ -205,7 +215,7 @@ func (a *Agent) getAIResponse(ctx context.Context, session *Session) (*ai.ChatRe
 
 	// Get response with timeout - increased for large context models
 	// Large context windows (262K+ tokens) take longer to process
-	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 300*time.Second) // 5 minutes for complex tasks
 	defer cancel()
 
 	return a.aiCaller.Chat(ctx, req)

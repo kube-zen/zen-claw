@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -172,7 +173,22 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 	}
 	
 	// Send request to gateway
+	var spinner *Spinner
+	if showProgress {
+		spinner = NewSpinner("⏳ Processing...")
+		spinner.Start()
+	} else {
+		// Still show minimal progress
+		fmt.Print("⏳ Processing... ")
+	}
+	
 	resp, err := client.Send(req)
+	
+	if showProgress && spinner != nil {
+		spinner.Stop()
+	} else {
+		fmt.Println("done")
+	}
 	if err != nil {
 		fmt.Printf("\n❌ Gateway request failed: %v\n", err)
 		os.Exit(1)
@@ -491,4 +507,48 @@ func isModelCompatibleWithProvider(modelName, provider string) bool {
 	
 	// Unknown provider, assume compatible
 	return true
+}
+
+// Spinner provides a simple terminal spinner for progress indication
+type Spinner struct {
+	message string
+	stop    chan bool
+	done    chan bool
+}
+
+// NewSpinner creates a new spinner
+func NewSpinner(message string) *Spinner {
+	return &Spinner{
+		message: message,
+		stop:    make(chan bool),
+		done:    make(chan bool),
+	}
+}
+
+// Start starts the spinner animation
+func (s *Spinner) Start() {
+	go func() {
+		frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+		i := 0
+		
+		for {
+			select {
+			case <-s.stop:
+				// Clear line and show final message
+				fmt.Printf("\r%s✓ %s\n", strings.Repeat(" ", 50), s.message)
+				s.done <- true
+				return
+			default:
+				fmt.Printf("\r%s %s", frames[i], s.message)
+				i = (i + 1) % len(frames)
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}()
+}
+
+// Stop stops the spinner animation
+func (s *Spinner) Stop() {
+	s.stop <- true
+	<-s.done
 }
