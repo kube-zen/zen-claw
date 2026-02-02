@@ -174,12 +174,12 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req ai.ChatRequest)
 		// Ensure Content is always a string (Qwen requires string, not object)
 		// Qwen API is strict: content must be string or array of objects, never a plain object
 		contentStr := msg.Content
-		
+
 		// Handle empty content - use empty string, not nil
 		if contentStr == "" {
 			contentStr = ""
 		}
-		
+
 		// For assistant messages with tool calls, content can be empty (tool calls are in separate field)
 		// For other roles, ensure we have valid string content
 		if msg.Role != "assistant" && contentStr == "" {
@@ -187,12 +187,12 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req ai.ChatRequest)
 			// This shouldn't happen, but handle gracefully
 			contentStr = ""
 		}
-		
+
 		openaiMsg := openai.ChatCompletionMessage{
 			Role:    msg.Role,
 			Content: contentStr, // Always a string, never an object
 		}
-		
+
 		// Qwen is strict: content must be string, never an object
 		// If content appears to be JSON object/array as string, that's fine
 		// But ensure we're not accidentally passing a Go object/struct
