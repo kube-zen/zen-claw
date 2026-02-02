@@ -60,7 +60,7 @@ go build -o zen-claw .
 - **Switch models during session**:
   - `/models` - List all available models
   - `/model qwen/qwen3-coder-30b` - Switch to Qwen Coder
-  - `/model openai/gpt-4o` - Switch to OpenAI GPT-4
+  - `/model deepseek/deepseek-chat` - Switch to DeepSeek
 
 ### Tool System
 - **Read**: Read file contents

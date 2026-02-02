@@ -21,9 +21,10 @@ type GatewayAICaller struct {
 func (c *GatewayAICaller) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
 	// Use provider/model from caller if specified, otherwise use defaults
 	preferredProvider := c.provider
-	if req.Model != "" && req.Model != "default" {
-		// Model might contain provider hint, e.g., "deepseek/deepseek-chat"
-		// For now, use default provider
+	
+	// Override model if specified
+	if c.model != "" {
+		req.Model = c.model
 	}
 	
 	return c.aiRouter.Chat(ctx, req, preferredProvider)
@@ -111,12 +112,12 @@ func (s *AgentService) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 		model:    modelName,
 	}
 	
-	// Create lightweight agent
-	lightAgent := agent.NewLightAgent(aiCaller, s.tools, maxSteps)
+	// Create agent
+	agentInstance := agent.NewAgent(aiCaller, s.tools, maxSteps)
 	
 	// Run agent
 	startTime := time.Now()
-	updatedSession, result, err := lightAgent.Run(ctx, session, req.UserInput)
+	updatedSession, result, err := agentInstance.Run(ctx, session, req.UserInput)
 	duration := time.Since(startTime)
 	
 	if err != nil {

@@ -1,0 +1,91 @@
+#!/bin/bash
+
+# Zen Claw Final Workflow Setup Script
+# Creates a Byobu session with Qwen and DeepSeek agents running in separate panes
+
+SESSION_NAME="zen-work"
+QWEN_WINDOW_NAME="zen-qwen"
+DEEPSEEK_WINDOW_NAME="zen-deepseek"
+
+echo "Setting up Zen Claw final workflow..."
+echo "Session: $SESSION_NAME"
+echo "Windows: $QWEN_WINDOW_NAME, $DEEPSEEK_WINDOW_NAME"
+echo ""
+
+# Check if Byobu is available
+if ! command -v byobu &> /dev/null; then
+    echo "❌ Byobu is not installed or not in PATH"
+    echo "Please install Byobu first: sudo apt install byobu (Ubuntu/Debian)"
+    exit 1
+fi
+
+# Create new Byobu session
+echo "Creating Byobu session: $SESSION_NAME"
+byobu new-session -d -s "$SESSION_NAME"
+
+# Create Qwen window - ensure it runs the agent
+echo "Creating Qwen window: $QWEN_WINDOW_NAME"
+byobu new-window -t "$SESSION_NAME":"$QWEN_WINDOW_NAME" -n "$QWEN_WINDOW_NAME" bash -c "
+    echo '=== Qwen Session ==='
+    echo 'Ready for zen-claw agent --provider qwen'
+    echo 'Use /models and /model commands to switch models'
+    echo ''
+    echo 'To start Qwen agent:'
+    echo 'zen-claw agent --provider qwen'
+    echo ''
+    echo 'Press Enter to continue...'
+    read
+"
+
+# Create DeepSeek window - ensure it runs the agent  
+echo "Creating DeepSeek window: $DEEPSEEK_WINDOW_NAME"
+byobu new-window -t "$SESSION_NAME":"$DEEPSEEK_WINDOW_NAME" -n "$DEEPSEEK_WINDOW_NAME" bash -c "
+    echo '=== DeepSeek Session ==='
+    echo 'Ready for zen-claw agent --provider deepseek'
+    echo 'Use /models and /model commands to switch models'
+    echo ''
+    echo 'To start DeepSeek agent:'
+    echo 'zen-claw agent --provider deepseek'
+    echo ''
+    echo 'Press Enter to continue...'
+    read
+"
+
+# Set up initial layout (split horizontally)
+echo "Setting up layout..."
+byobu select-window -t "$SESSION_NAME"
+byobu split-window -h -p 50
+
+# Rename windows for clarity
+byobu select-pane -t 0
+byobu rename-window "$QWEN_WINDOW_NAME"
+
+byobu select-pane -t 1
+byobu rename-window "$DEEPSEEK_WINDOW_NAME"
+
+# Attach to the session
+echo ""
+echo "✅ Final workflow setup complete!"
+echo "Session Name: $SESSION_NAME"
+echo "Windows:"
+echo "  1. $QWEN_WINDOW_NAME (Qwen)"
+echo "  2. $DEEPSEEK_WINDOW_NAME (DeepSeek)"
+echo ""
+echo "To attach to this session later:"
+echo "  byobu attach -t $SESSION_NAME"
+echo ""
+echo "Navigation:"
+echo "  F2: Create new session window"
+echo "  F3: Previous window (left)" 
+echo "  F4: Next window (right)"
+echo "  F8: Rename current window"
+echo ""
+echo "WORKFLOW INSTRUCTIONS:"
+echo "1. In Qwen pane, run: zen-claw agent --provider qwen"
+echo "2. In DeepSeek pane, run: zen-claw agent --provider deepseek"
+echo "3. Both will support: /models and /model commands"
+echo ""
+echo "Enjoy your multi-provider Zen Claw workflow!"
+
+# Attach to the session automatically
+byobu attach -t "$SESSION_NAME"

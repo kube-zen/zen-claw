@@ -21,9 +21,18 @@ type Session struct {
 }
 
 type Message struct {
-	Role    string    `json:"role"`
-	Content string    `json:"content"`
-	Time    time.Time `json:"time"`
+	Role       string    `json:"role"`
+	Content    string    `json:"content"`
+	Time       time.Time `json:"time"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string    `json:"tool_call_id,omitempty"`
+}
+
+// ToolCall represents a tool invocation request from the AI
+type ToolCall struct {
+	ID   string                 `json:"id"`
+	Name string                 `json:"name"`
+	Args map[string]interface{} `json:"args"`
 }
 
 type SessionStats struct {
@@ -128,7 +137,7 @@ func ListSessions(workspace string) ([]map[string]interface{}, error) {
 			if err := json.Unmarshal(data, &session); err == nil {
 				// Create summary for listing
 				meta := map[string]interface{}{
-					"id":            session.ID,
+					"id":            sessionID,
 					"created_at":    session.CreatedAt.Format(time.RFC3339),
 					"last_updated":  session.LastUpdated.Format(time.RFC3339),
 					"message_count": len(session.Messages),

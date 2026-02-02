@@ -21,6 +21,8 @@ func Execute() error {
 func init() {
 	rootCmd.AddCommand(newAgentCmd())
 	rootCmd.AddCommand(newConfigCmd())
+	rootCmd.AddCommand(newGatewayCmd())
 	rootCmd.AddCommand(newSessionCmd())
+	rootCmd.AddCommand(newSlackCmd())
 	rootCmd.AddCommand(newToolsCmd())
 }

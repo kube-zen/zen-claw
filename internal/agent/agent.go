@@ -4,81 +4,93 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/neves/zen-claw/internal/ai"
-	"github.com/neves/zen-claw/internal/session"
 )
 
-// Agent represents an AI agent that can execute tools and continue conversations
+// AICaller interface for making AI calls
+// This abstracts away whether we call AI directly or through gateway
+type AICaller interface {
+	Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error)
+}
+
+// ToolResult represents the result of a tool execution
+type ToolResult struct {
+	ToolCallID string
+	Content    string
+	IsError    bool
+}
+
+// Agent is a minimal agent focused only on tool execution
+// Uses AICaller interface for AI communication
 type Agent struct {
-	provider   ai.Provider
-	tools      map[string]Tool
-	session    *session.Session
-	workingDir string
-	maxSteps   int // Maximum tool execution steps to prevent infinite loops
+	aiCaller AICaller
+	tools    map[string]Tool
+	maxSteps int
 	currentModel string
 }
 
-// Config for creating a new Agent
-type Config struct {
-	Provider   ai.Provider
-	Tools      []Tool
-	WorkingDir string
-	SessionID  string
-	MaxSteps   int
-	Model      string
-}
-
-// NewAgent creates a new agent with the given configuration
-func NewAgent(cfg Config) *Agent {
-	if cfg.MaxSteps == 0 {
-		cfg.MaxSteps = 10 // Default max steps
-	}
-
+// NewAgent creates a new agent
+func NewAgent(aiCaller AICaller, tools []Tool, maxSteps int) *Agent {
 	// Convert tools to map
-	tools := make(map[string]Tool)
-	for _, tool := range cfg.Tools {
-		tools[tool.Name()] = tool
-	}
-
-	// Create session
-	sess := session.NewSession(cfg.SessionID)
-	if cfg.WorkingDir != "" {
-		sess.SetWorkingDir(cfg.WorkingDir)
+	toolMap := make(map[string]Tool)
+	for _, tool := range tools {
+		toolMap[tool.Name()] = tool
 	}
 
 	return &Agent{
-		provider:   cfg.Provider,
-		tools:      tools,
-		session:    sess,
-		workingDir: cfg.WorkingDir,
-		maxSteps:   cfg.MaxSteps,
-		currentModel: cfg.Model,
+		aiCaller: aiCaller,
+		tools:    toolMap,
+		maxSteps: maxSteps,
+		currentModel: "deepseek-chat", // Default model
 	}
 }
 
-// Run executes a user request with automatic tool chaining and conversation continuation
-func (a *Agent) Run(ctx context.Context, userInput string) (string, error) {
+// Run executes a task with the given session
+// Returns updated session and final result
+func (a *Agent) Run(ctx context.Context, session *Session, userInput string) (*Session, string, error) {
 	log.Printf("[Agent] Running: %s", userInput)
 	
 	// Handle model switching commands
-	if strings.HasPrefix(userInput, "/model ") {
-		model := strings.TrimSpace(strings.TrimPrefix(userInput, "/model "))
-		return a.switchModel(model)
+	if userInput == "/models" {
+		availableModels := []string{
+			"deepseek-chat",
+			"qwen3-coder-30b-a3b-instruct",
+			"qwen-plus",
+			"qwen-max",
+			"gpt-4o",
+			"gpt-4-turbo",
+			"glm-4",
+			"glm-3-turbo",
+			"abab6.5s",
+			"abab6.5",
+		}
+		
+		var sb strings.Builder
+		sb.WriteString("Available models:\n")
+		for _, model := range availableModels {
+			if model == a.currentModel {
+				sb.WriteString(fmt.Sprintf("  ✓ %s (current)\n", model))
+			} else {
+				sb.WriteString(fmt.Sprintf("  ○ %s\n", model))
+			}
+		}
+		sb.WriteString("\nUse '/model <model-name>' to switch models")
+		return session, sb.String(), nil
 	}
 	
-	if strings.HasPrefix(userInput, "/models") {
-		return a.listModels(), nil
+	if strings.HasPrefix(userInput, "/model ") {
+		model := strings.TrimSpace(strings.TrimPrefix(userInput, "/model "))
+		a.currentModel = model
+		return session, fmt.Sprintf("Model switched to: %s", model), nil
 	}
 	
 	// Add user message to session
-	a.session.AddMessage(session.Message{
+	session.AddMessage(ai.Message{
 		Role:    "user",
 		Content: userInput,
-		Time:    time.Now(),
 	})
 
 	// Execute agent loop
@@ -86,20 +98,18 @@ func (a *Agent) Run(ctx context.Context, userInput string) (string, error) {
 		log.Printf("[Agent] Step %d", step+1)
 		
 		// Get AI response
-		resp, err := a.getAIResponse(ctx)
+		resp, err := a.getAIResponse(ctx, session)
 		if err != nil {
-			return "", fmt.Errorf("AI response failed on step %d: %w", step+1, err)
+			return session, "", fmt.Errorf("AI response failed: %w", err)
 		}
 
 		// If no tool calls, we're done
 		if len(resp.ToolCalls) == 0 {
-			log.Printf("[Agent] No tool calls, returning final response")
-			a.session.AddMessage(session.Message{
+			session.AddMessage(ai.Message{
 				Role:    "assistant",
 				Content: resp.Content,
-				Time:    time.Now(),
 			})
-			return resp.Content, nil
+			return session, resp.Content, nil
 		}
 
 		log.Printf("[Agent] Executing %d tool calls", len(resp.ToolCalls))
@@ -107,71 +117,35 @@ func (a *Agent) Run(ctx context.Context, userInput string) (string, error) {
 		// Execute all tool calls
 		toolResults, err := a.executeToolCalls(ctx, resp.ToolCalls)
 		if err != nil {
-			return "", fmt.Errorf("tool execution failed on step %d: %w", step+1, err)
+			return session, "", fmt.Errorf("tool execution failed: %w", err)
 		}
 
-		// Add assistant message with tool calls (for conversation history)
-		a.session.AddMessage(session.Message{
-			Role:    "assistant",
-			Content: resp.Content,
-			Time:    time.Now(),
+		// Add assistant message with tool calls
+		session.AddMessage(ai.Message{
+			Role:      "assistant",
+			Content:   resp.Content,
+			ToolCalls: resp.ToolCalls,
 		})
 
 		// Add tool results to session
 		for _, result := range toolResults {
-			a.session.AddMessage(session.Message{
-				Role:    "tool",
-				Content: result.Content,
-				Time:    time.Now(),
+			session.AddMessage(ai.Message{
+				Role:       "tool",
+				Content:    result.Content,
+				ToolCallID: result.ToolCallID,
 			})
 		}
 
 		log.Printf("[Agent] Added %d tool results, continuing...", len(toolResults))
 	}
 
-	return "", fmt.Errorf("exceeded maximum steps (%d)", a.maxSteps)
+	return session, "", fmt.Errorf("exceeded maximum steps (%d)", a.maxSteps)
 }
 
-// switchModel switches the agent to a different model
-func (a *Agent) switchModel(model string) (string, error) {
-	// In a real implementation, this would recreate the agent with new provider
-	// For now, we'll just record the model change
-	a.currentModel = model
-	return fmt.Sprintf("Model switched to: %s", model), nil
-}
-
-// listModels shows available models
-func (a *Agent) listModels() string {
-	availableModels := []string{
-		"deepseek/deepseek-chat",
-		"qwen/qwen3-coder-30b",
-		"qwen/qwen-plus",
-		"qwen/qwen-max",
-		"openai/gpt-4o",
-		"openai/gpt-4-turbo",
-		"glm/glm-4",
-		"glm/glm-3-turbo",
-		"minimax/abab6.5s",
-		"minimax/abab6.5",
-	}
-	
-	var sb strings.Builder
-	sb.WriteString("Available models:\n")
-	for _, model := range availableModels {
-		if model == a.currentModel {
-			sb.WriteString(fmt.Sprintf("  ✓ %s (current)\n", model))
-		} else {
-			sb.WriteString(fmt.Sprintf("  ○ %s\n", model))
-		}
-	}
-	sb.WriteString("\nUse '/model <model-name>' to switch models")
-	return sb.String()
-}
-
-// getAIResponse gets a response from the AI provider with current session messages
-func (a *Agent) getAIResponse(ctx context.Context) (*ai.ChatResponse, error) {
+// getAIResponse gets a response from the AI caller with session messages
+func (a *Agent) getAIResponse(ctx context.Context, session *Session) (*ai.ChatResponse, error) {
 	// Get current messages
-	messages := a.session.GetMessages()
+	messages := session.GetMessages()
 	
 	// Convert tools to AI tool definitions
 	toolDefs := a.getToolDefinitions()
@@ -189,22 +163,10 @@ func (a *Agent) getAIResponse(ctx context.Context) (*ai.ChatResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	response, err := a.provider.Chat(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("AI provider %s failed: %w", a.provider.Name(), err)
-	}
-
-	return response, nil
+	return a.aiCaller.Chat(ctx, req)
 }
 
-// ToolResult represents the result of a tool execution
-type ToolResult struct {
-	ToolCallID string
-	Content    string
-	IsError    bool
-}
-
-// executeToolCalls executes all tool calls and returns results with tool call IDs
+// executeToolCalls executes all tool calls and returns results
 func (a *Agent) executeToolCalls(ctx context.Context, toolCalls []ai.ToolCall) ([]ToolResult, error) {
 	var results []ToolResult
 
@@ -259,19 +221,4 @@ func (a *Agent) getToolDefinitions() []ai.ToolDefinition {
 	}
 	
 	return defs
-}
-
-// GetSession returns the agent's session
-func (a *Agent) GetSession() *session.Session {
-	return a.session
-}
-
-// AddTool adds a tool to the agent
-func (a *Agent) AddTool(tool Tool) {
-	a.tools[tool.Name()] = tool
-}
-
-// GetCurrentModel returns the current model being used
-func (a *Agent) GetCurrentModel() string {
-	return a.currentModel
 }

@@ -1,16 +1,10 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
-	"log"
 	"os"
 	"strings"
-	"time"
 
-	"github.com/neves/zen-claw/internal/agent"
-	"github.com/neves/zen-claw/internal/config"
-	"github.com/neves/zen-claw/internal/providers"
 	"github.com/spf13/cobra"
 )
 
@@ -61,7 +55,7 @@ Examples:
 		},
 	}
 	
-	cmd.Flags().StringVar(&model, "model", "", "AI model (e.g., deepseek/deepseek-chat)")
+	cmd.Flags().StringVar(&model, "model", "", "AI model (e.g., deepseek-chat)")
 	cmd.Flags().StringVar(&provider, "provider", "", "AI provider (deepseek, openai, glm, minimax, qwen)")
 	cmd.Flags().StringVar(&workingDir, "working-dir", ".", "Working directory for tools")
 	cmd.Flags().StringVar(&sessionID, "session-id", "", "Session ID (for continuing sessions)")
@@ -78,9 +72,9 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 	}
 	
 	if showProgress {
-		fmt.Println("🚀 Zen Agent - Lightweight (with console progress)")
+		fmt.Println("🚀 Zen Agent - Gateway Client")
 	} else {
-		fmt.Println("🚀 Zen Agent - Lightweight")
+		fmt.Println("🚀 Zen Agent - Gateway Client")
 	}
 	fmt.Println("═" + strings.Repeat("═", 78))
 	fmt.Printf("Task: %s\n", task)
@@ -89,25 +83,43 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 	}
 	fmt.Printf("Working directory: %s\n", workingDir)
 	
-	// Load config
-	cfg, err := config.LoadConfig("")
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+	// Create gateway client
+	client := NewGatewayClient("http://localhost:8080")
+	
+	// Check if gateway is running
+	if err := client.HealthCheck(); err != nil {
+		fmt.Printf("\n❌ Gateway not available: %v\n", err)
+		fmt.Println("   Start the gateway first: zen-claw gateway start")
+		os.Exit(1)
 	}
 	
 	if verbose {
-		fmt.Printf("Loaded config from: %s\n", config.DefaultConfigPath())
+		fmt.Println("✓ Gateway is healthy")
 	}
 	
 	// Determine provider and model
 	providerName := providerFlag
 	if providerName == "" {
-		providerName = cfg.Default.Provider
+		providerName = "deepseek" // Default
 	}
 	
 	modelName := modelFlag
 	if modelName == "" {
-		modelName = cfg.GetModel(providerName)
+		// Default models per provider
+		switch providerName {
+		case "deepseek":
+			modelName = "deepseek-chat"
+		case "qwen":
+			modelName = "qwen3-coder-30b-a3b-instruct"
+		case "glm":
+			modelName = "glm-4.7"
+		case "minimax":
+			modelName = "minimax-M2.1"
+		case "openai":
+			modelName = "gpt-4o-mini"
+		default:
+			modelName = "deepseek-chat"
+		}
 	}
 	
 	fmt.Printf("Provider: %s, Model: %s\n", providerName, modelName)
@@ -115,79 +127,72 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 		fmt.Println()
 	}
 	
-	// Create AI provider
-	factory := providers.NewFactory(cfg)
-	aiProvider, err := factory.CreateProvider(providerName)
-	if err != nil {
-		log.Fatalf("Failed to create provider %s: %v", providerName, err)
+	// Prepare request
+	req := ChatRequest{
+		SessionID:  sessionID,
+		UserInput:  task,
+		WorkingDir: workingDir,
+		Provider:   providerName,
+		Model:      modelName,
+		MaxSteps:   maxSteps,
 	}
 	
-	if verbose {
-		fmt.Printf("Using AI provider: %s\n", aiProvider.Name())
-	}
-	
-	// Create tools
-	tools := []agent.Tool{
-		agent.NewExecTool(workingDir),
-		agent.NewReadFileTool(workingDir),
-		agent.NewListDirTool(workingDir),
-		agent.NewSystemInfoTool(),
-	}
-	
-	// Create or load session
-	session := agent.NewSession(sessionID)
-	session.SetWorkingDir(workingDir)
-	
-	// Create lightweight agent (stateless, session passed as parameter)
-	lightAgent := agent.NewLightAgent(aiProvider, tools, maxSteps)
-	
-	// Run agent
-	ctx := context.Background()
 	if showProgress {
-		fmt.Println("🤖 Starting agent execution...")
+		fmt.Println("🤖 Sending request to gateway...")
 		fmt.Println()
-		fmt.Printf("📡 Session: %s\n", session.ID)
+		fmt.Printf("📡 Gateway: http://localhost:8080\n")
+		if sessionID != "" {
+			fmt.Printf("   Session ID: %s\n", sessionID)
+		}
 		fmt.Printf("   Task: %s\n", task)
 		fmt.Println()
 	}
 	
-	startTime := time.Now()
-	updatedSession, result, err := lightAgent.Run(ctx, session, task)
-	duration := time.Since(startTime)
-	
+	// Send request to gateway
+	resp, err := client.Send(req)
 	if err != nil {
-		fmt.Printf("\n❌ Agent execution failed: %v\n", err)
-		if verbose {
-			fmt.Printf("Detailed error information:\n")
-			fmt.Printf("  - Task: %s\n", task)
-			fmt.Printf("  - Provider: %s\n", providerName)
-			fmt.Printf("  - Model: %s\n", modelName)
-			fmt.Printf("  - Working directory: %s\n", workingDir)
-			fmt.Printf("  - Session ID: %s\n", sessionID)
-		}
+		fmt.Printf("\n❌ Gateway request failed: %v\n", err)
+		os.Exit(1)
+	}
+	
+	// Check for error in response
+	if resp.Error != "" {
+		fmt.Printf("\n❌ Agent execution failed: %s\n", resp.Error)
 		os.Exit(1)
 	}
 	
 	// Print result
 	fmt.Println("\n" + strings.Repeat("═", 80))
-	fmt.Println("🎯 RESULT")
+	fmt.Println("🎯 RESULT (via Gateway)")
 	fmt.Println(strings.Repeat("═", 80))
-	fmt.Println(result)
+	fmt.Println(resp.Result)
 	fmt.Println(strings.Repeat("═", 80))
 	
-	// Print session info (important for multi-client)
-	stats := updatedSession.GetStats()
-	fmt.Printf("\n📊 Session Information:\n")
-	fmt.Printf("   Session ID: %s\n", stats.SessionID)
-	fmt.Printf("   Duration: %v\n", duration.Round(time.Millisecond))
-	fmt.Printf("   Messages: %d total\n", stats.MessageCount)
-	fmt.Printf("     - User: %d\n", stats.UserMessages)
-	fmt.Printf("     - Assistant: %d\n", stats.AssistantMessages)
-	fmt.Printf("     - Tool: %d\n", stats.ToolMessages)
-	fmt.Printf("   Working directory: %s\n", stats.WorkingDir)
+	// Print session info from gateway response
+	if sessionInfo := resp.SessionInfo; sessionInfo != nil {
+		fmt.Printf("\n📊 Session Information:\n")
+		if sid, ok := sessionInfo["session_id"].(string); ok {
+			fmt.Printf("   Session ID: %s\n", sid)
+		}
+		if msgCount, ok := sessionInfo["message_count"].(float64); ok {
+			fmt.Printf("   Messages: %.0f total\n", msgCount)
+		}
+		if userMsgs, ok := sessionInfo["user_messages"].(float64); ok {
+			fmt.Printf("     - User: %.0f\n", userMsgs)
+		}
+		if assistantMsgs, ok := sessionInfo["assistant_messages"].(float64); ok {
+			fmt.Printf("     - Assistant: %.0f\n", assistantMsgs)
+		}
+		if toolMsgs, ok := sessionInfo["tool_messages"].(float64); ok {
+			fmt.Printf("     - Tool: %.0f\n", toolMsgs)
+		}
+		if wd, ok := sessionInfo["working_dir"].(string); ok {
+			fmt.Printf("   Working directory: %s\n", wd)
+		}
+	}
 	
 	if showProgress {
-		fmt.Printf("\n💡 To continue this session from another client:\n")
-		fmt.Printf("   Use session ID: %s\n", stats.SessionID)
+		fmt.Printf("\n💡 To continue this session:\n")
+		fmt.Printf("   zen-claw agent --session-id %s \"your next task\"\n", resp.SessionID)
 	}
 }

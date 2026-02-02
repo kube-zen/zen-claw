@@ -1,0 +1,112 @@
+#!/bin/bash
+
+# Zen Claw Perfect Setup Script
+# Creates a fully working Byobu session with interactive zen-claw agents
+
+SESSION_NAME="zen-work"
+QWEN_WINDOW_NAME="zen-qwen"
+DEEPSEEK_WINDOW_NAME="zen-deepseek"
+
+echo "Creating perfect Zen Claw Byobu session..."
+echo "This will set up the exact workflow you requested."
+
+# Check if Byobu is available
+if ! command -v byobu &> /dev/null; then
+    echo "❌ Byobu is not installed or not in PATH"
+    echo "Please install Byobu first: sudo apt install byobu (Ubuntu/Debian)"
+    exit 1
+fi
+
+# Check if we're already in a Byobu session
+if [[ -n "$BYOBU_BACKEND" ]]; then
+    echo "⚠️  You're already in a Byobu session"
+    echo "Creating new windows in current session..."
+else
+    echo "Creating new Byobu session: $SESSION_NAME"
+fi
+
+# Create session and windows properly
+byobu new-session -d -s "$SESSION_NAME" 2>/dev/null || true
+
+# Create windows with proper commands
+echo "Creating windows..."
+
+# Create Qwen window with proper setup
+byobu new-window -t "$SESSION_NAME":"$QWEN_WINDOW_NAME" -n "$QWEN_WINDOW_NAME" bash -c "
+    echo '┌─────────────────────────────────────────────┐'
+    echo '│        ZEN CLAW - QWEN SESSION            │'
+    echo '└─────────────────────────────────────────────┘'
+    echo 'Ready for: zen-claw agent --provider qwen'
+    echo ''
+    echo 'Commands available:'
+    echo '  /models      - List all models'
+    echo '  /model qwen  - Switch to Qwen'
+    echo '  /model deepseek - Switch to DeepSeek'
+    echo ''
+    echo 'To start Qwen session:'
+    echo '  zen-claw agent --provider qwen'
+    echo ''
+    echo 'Press Enter to continue...'
+    read
+"
+
+# Create DeepSeek window with proper setup  
+byobu new-window -t "$SESSION_NAME":"$DEEPSEEK_WINDOW_NAME" -n "$DEEPSEEK_WINDOW_NAME" bash -c "
+    echo '┌─────────────────────────────────────────────┐'
+    echo '│       ZEN CLAW - DEEPSEEK SESSION         │'
+    echo '└─────────────────────────────────────────────┘'
+    echo 'Ready for: zen-claw agent --provider deepseek'
+    echo ''
+    echo 'Commands available:'
+    echo '  /models      - List all models'
+    echo '  /model qwen  - Switch to Qwen'
+    echo '  /model deepseek - Switch to DeepSeek'
+    echo ''
+    echo 'To start DeepSeek session:'
+    echo '  zen-claw agent --provider deepseek'
+    echo ''
+    echo 'Press Enter to continue...'
+    read
+"
+
+# Set up layout and rename windows
+byobu select-window -t "$SESSION_NAME"
+byobu split-window -h -p 50
+
+# Rename windows properly
+byobu select-pane -t 0
+byobu rename-window "$QWEN_WINDOW_NAME"
+
+byobu select-pane -t 1
+byobu rename-window "$DEEPSEEK_WINDOW_NAME"
+
+# Final setup instructions
+echo ""
+echo "✅ Perfect Zen Claw Session Created!"
+echo ""
+echo "SESSION INFORMATION:"
+echo "  Session: $SESSION_NAME"
+echo "  Windows: $QWEN_WINDOW_NAME, $DEEPSEEK_WINDOW_NAME"
+echo ""
+echo "NAVIGATION KEYBINDINGS:"
+echo "  F2: Create new session window"
+echo "  F3: Previous window (left)"
+echo "  F4: Next window (right)" 
+echo "  F8: Rename current window"
+echo ""
+echo "WORKFLOW INSTRUCTIONS:"
+echo "1. In Qwen pane, run: zen-claw agent --provider qwen"
+echo "2. In DeepSeek pane, run: zen-claw agent --provider deepseek"
+echo "3. Both sessions support: /models and /model commands"
+echo ""
+echo "TO ATTACH LATER:"
+echo "  byobu attach -t $SESSION_NAME"
+echo ""
+echo "🎉 Ready for your interactive Zen Claw workflow!"
+
+# Try to attach to the session
+if [[ -z "$BYOBU_BACKEND" ]]; then
+    byobu attach -t "$SESSION_NAME" 2>/dev/null || echo "Note: Could not auto-attach. Use 'byobu attach -t $SESSION_NAME' manually."
+else
+    echo "Already in Byobu session. Windows created successfully."
+fi
