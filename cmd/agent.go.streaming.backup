@@ -7,14 +7,11 @@ import (
 	"os"
 	"strings"
 	"time"
-t"github.com/neves/zen-claw/internal/streaming"
+t"net/http"
+	"github.com/kube-zen/zen-sdk/pkg/health"
 
 	"github.com/spf13/cobra"
 )
-
-tvar stream bool
-
-	cmd.Flags().BoolVar(&stream, "stream", false, "Enable real-time streaming")
 
 func newAgentCmd() *cobra.Command {
 	var model string
@@ -22,12 +19,6 @@ func newAgentCmd() *cobra.Command {
 	var workingDir string
 	var sessionID string
 	var showProgress bool
-t		if stream {
-				runAgentStream(task, model, provider, workingDir, sessionID, showProgress, maxSteps, verbose)
-			} else {
-				runAgent(task, model, provider, workingDir, sessionID, showProgress, maxSteps, verbose)
-			}
-
 	var maxSteps int
 	var verbose bool
 	

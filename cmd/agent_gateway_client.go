@@ -2,29 +2,30 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"strings"
 	"time"
+
+	"github.com/kube-zen/zen-sdk/pkg/logging"
 )
 
-// GatewayClient sends requests to the Zen Claw gateway
+// GatewayClient handles communication with the Zen Claw gateway
 type GatewayClient struct {
-	baseURL string
-	timeout time.Duration
+	baseURL  string
+	client   *http.Client
+	logger   *logging.Logger
 }
 
 // NewGatewayClient creates a new gateway client
 func NewGatewayClient(baseURL string) *GatewayClient {
-	if baseURL == "" {
-		baseURL = "http://localhost:8080"
-	}
-	
 	return &GatewayClient{
-		baseURL: strings.TrimSuffix(baseURL, "/"),
-		timeout: 300 * time.Second, // 5 minutes for complex agent tasks
+		baseURL: baseURL,
+		client: &http.Client{
+			Timeout: 30 * time.Second,
+		},
+		logger: logging.NewLogger("gateway-client"),
 	}
 }
 
@@ -32,83 +33,113 @@ func NewGatewayClient(baseURL string) *GatewayClient {
 type ChatRequest struct {
 	SessionID  string `json:"session_id"`
 	UserInput  string `json:"user_input"`
-	WorkingDir string `json:"working_dir,omitempty"`
-	Provider   string `json:"provider,omitempty"`
-	Model      string `json:"model,omitempty"`
-	MaxSteps   int    `json:"max_steps,omitempty"`
+	WorkingDir string `json:"working_dir"`
+	Provider   string `json:"provider"`
+	Model      string `json:"model"`
+	MaxSteps   int    `json:"max_steps"`
 }
 
 // ChatResponse represents a chat response from the gateway
 type ChatResponse struct {
-	SessionID   string                 `json:"session_id"`
-	Result      string                 `json:"result"`
-	SessionInfo map[string]interface{} `json:"session_info"`
-	Error       string                 `json:"error,omitempty"`
+	SessionID  string                 `json:"session_id"`
+	Result     string                 `json:"result"`
+	Error      string                 `json:"error,omitempty"`
+	SessionInfo map[string]interface{} `json:"session_info,omitempty"`
 }
 
-// Send sends a chat request to the gateway
-func (c *GatewayClient) Send(req ChatRequest) (*ChatResponse, error) {
-	// Prepare JSON request body
-	jsonBody, err := json.Marshal(req)
+// HealthCheck checks if the gateway is reachable
+func (gc *GatewayClient) HealthCheck() error {
+	url := fmt.Sprintf("%s/api/v1/health", gc.baseURL)
+	
+	resp, err := gc.client.Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("marshal JSON: %w", err)
-	}
-	
-	// Create HTTP request
-	client := &http.Client{Timeout: c.timeout}
-	gatewayURL := fmt.Sprintf("%s/chat", c.baseURL)
-	
-	httpReq, err := http.NewRequest("POST", gatewayURL, bytes.NewReader(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("create HTTP request: %w", err)
-	}
-	
-	httpReq.Header.Set("Content-Type", "application/json")
-	
-	// Send request
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		// Provide better error message for timeouts
-		if strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "deadline") {
-			return nil, fmt.Errorf("gateway request timed out after %v. Complex tasks may take longer. Try increasing timeout or breaking task into smaller steps.", c.timeout)
-		}
-		return nil, fmt.Errorf("HTTP request failed: %w", err)
-	}
-	defer resp.Body.Close()
-	
-	// Read response
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response body: %w", err)
-	}
-	
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("gateway returned status %d: %s", resp.StatusCode, string(body))
-	}
-	
-	// Parse JSON response
-	var gatewayResp ChatResponse
-	if err := json.Unmarshal(body, &gatewayResp); err != nil {
-		return nil, fmt.Errorf("parse JSON response: %w", err)
-	}
-	
-	return &gatewayResp, nil
-}
-
-// HealthCheck checks if the gateway is healthy
-func (c *GatewayClient) HealthCheck() error {
-	client := &http.Client{Timeout: 5 * time.Second}
-	healthURL := fmt.Sprintf("%s/health", c.baseURL)
-	
-	resp, err := client.Get(healthURL)
-	if err != nil {
-		return fmt.Errorf("gateway not reachable: %w", err)
+		return err
 	}
 	defer resp.Body.Close()
 	
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("gateway health check failed with status %d", resp.StatusCode)
+		return fmt.Errorf("gateway unhealthy: %d", resp.StatusCode)
 	}
 	
 	return nil
+}
+
+// Send sends a chat request to the gateway
+func (gc *GatewayClient) Send(req ChatRequest) (*ChatResponse, error) {
+	url := fmt.Sprintf("%s/api/v1/chat", gc.baseURL)
+	
+	jsonReq, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	
+	resp, err := gc.client.Post(url, "application/json", bytes.NewBuffer(jsonReq))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("gateway request failed: %d", resp.StatusCode)
+	}
+	
+	var response ChatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, err
+	}
+	
+	return &response, nil
+}
+
+// StreamRequest represents a streaming request to the gateway
+type StreamRequest struct {
+	SessionID string `json:"session_id"`
+	Task      string `json:"task"`
+	Stream    bool   `json:"stream"`
+}
+
+// StreamResponse represents a streaming response from the gateway
+type StreamResponse struct {
+	ID      string `json:"id"`
+	Content string `json:"content"`
+	Done    bool   `json:"done"`
+	Error   string `json:"error,omitempty"`
+}
+
+// StartStream initiates a streaming session
+func (gc *GatewayClient) StartStream(sessionID, task string) (string, error) {
+	url := fmt.Sprintf("%s/api/v1/stream", gc.baseURL)
+	
+	req := StreamRequest{
+		SessionID: sessionID,
+		Task:      task,
+		Stream:    true,
+	}
+	
+	jsonReq, err := json.Marshal(req)
+	if err != nil {
+		return "", err
+	}
+	
+	resp, err := gc.client.Post(url, "application/json", bytes.NewBuffer(jsonReq))
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to start stream: %d", resp.StatusCode)
+	}
+	
+	var response map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return "", err
+	}
+	
+	streamID, ok := response["stream_id"].(string)
+	if !ok {
+		return "", fmt.Errorf("invalid response: missing stream_id")
+	}
+	
+	return streamID, nil
 }
