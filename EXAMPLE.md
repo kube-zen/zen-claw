@@ -1,148 +1,278 @@
-# Zen Claw - Complete Example
+# Zen Claw - Complete Examples
 
-This shows how the Go clone of OpenClaw would work end-to-end.
+This document shows practical examples of using Zen Claw with the current architecture.
 
-## Architecture
+## Architecture Overview
 
 ```
-User → CLI → Agent → AI Provider → Tools → Results
+┌─────────────┐    HTTP     ┌─────────────┐    API Calls    ┌─────────────┐
+│   Agent     │─────────────▶│  Gateway    │────────────────▶│ AI Providers │
+│  (Client)   │◀─────────────│ (Server)    │◀────────────────│ (DeepSeek,  │
+└─────────────┘              └─────────────┘                 │   Qwen,     │
+     │                              │                        │    etc.)    │
+     │                              │                        └─────────────┘
+     │                         Session Store
+     │                         (Persistent)
+     │
+Tool Execution
+     │
+┌─────────────┐
+│   Tools     │
+│  (exec,     │
+│  read_file, │
+│  list_dir)  │
+└─────────────┘
 ```
 
-## 1. CLI Usage
+## 1. Basic Usage Examples
 
+### Start the Gateway
 ```bash
-# Run an AI agent with tools
-zen-claw agent --model deepseek/deepseek-chat --task "Read README.md and summarize it"
+# Start the gateway server (required for agents to work)
+./zen-claw gateway start
 
-# Interactive mode
-zen-claw agent --thinking
-
-# List available tools
-zen-claw tools
-
-# Manage sessions
-zen-claw session list
-zen-claw session spawn --task "Write a Go function"
+# Check if gateway is running
+curl http://localhost:8080/health
 ```
 
-## 2. Agent System
+### Simple Agent Task
+```bash
+# Run a simple task with default provider (DeepSeek)
+./zen-claw agent "What's in the current directory?"
 
-```go
-// Create agent with workspace
-config := agent.Config{
-    Model:     "deepseek/deepseek-chat",
-    Workspace: "/home/user/projects",
-    Thinking:  true,
-}
+# Run with specific provider
+./zen-claw agent --provider qwen "Analyze the Go code in this directory"
 
-ag, err := agent.New(config)
-if err != nil {
-    log.Fatal(err)
-}
+# Run with specific model
+./zen-claw agent --model qwen3-coder-30b-a3b-instruct "Review this code"
 
-// Run task
-err = ag.RunTask("Write a hello world in Go")
+# Run with session ID (for continuing later)
+./zen-claw agent --session-id my-project "Set up a new Go project"
 ```
 
-## 3. Tool Integration
+### Interactive Mode
+```bash
+# Start interactive session
+./zen-claw agent
 
-```go
-// Tools are automatically available to the AI
-tools := []string{
-    "read",      // Read files
-    "write",     // Write files  
-    "edit",      // Edit files
-    "exec",      // Run commands
-    "process",   // Manage processes
-    "web_search", // Search web
-    "web_fetch",  // Fetch URLs
-}
-
-// AI can call tools like:
-// "Read the file at src/main.go"
-// "Run 'go test ./...'"
-// "Search for 'Go concurrency patterns'"
+# In interactive mode, use these commands:
+/providers           # List available AI providers
+/provider qwen       # Switch to Qwen provider
+/models             # List models for current provider
+/model qwen-plus     # Switch to a different model
+/help               # Show help
+/exit               # Exit interactive mode
 ```
 
-## 4. AI Provider Interface
+## 2. Code Analysis Examples
 
-```go
-type Provider interface {
-    Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error)
-    SupportsTools() bool
-}
-
-// Multiple providers supported:
-// - OpenAI (GPT-4, GPT-3.5)
-// - Anthropic (Claude)
-// - DeepSeek
-// - Google (Gemini)
-// - Local (Ollama, Llama)
+### Analyze a Project Structure
+```bash
+./zen-claw agent --provider qwen "cd to ~/zen/zen-claw and analyze the project structure"
 ```
 
-## 5. Session Management
-
-```go
-// Sessions persist across runs
-session := session.New(session.Config{
-    Workspace: "/workspace",
-    Model:     "deepseek/deepseek-chat",
-})
-
-// Save/load transcript
-session.Save()
-session.Load()
-
-// Sub-agent sessions
-parentSession.SpawnChild("Write documentation", "doc-agent")
+### Review Specific Files
+```bash
+./zen-claw agent "Read main.go and go.mod, then suggest improvements"
 ```
 
-## 6. Gateway (Future)
-
-```go
-// WebSocket server for remote access
-gateway.Start(&gateway.Config{
-    Port: 8080,
-    Auth: gateway.TokenAuth("secret-token"),
-})
-
-// Clients can connect and use agent remotely
-// Browser UI, mobile apps, other services
+### Performance Analysis
+```bash
+./zen-claw agent --provider qwen "Analyze this Go code for performance bottlenecks"
 ```
 
-## Complete Flow Example
+## 3. Development Workflow Examples
 
-1. **User**: `zen-claw agent --task "Write a Go HTTP server"`
-2. **Agent**: Creates session, loads tools
-3. **AI**: "I'll write a Go HTTP server. Let me check if Go is installed."
-4. **Tool Call**: `exec {command: "go version"}`
-5. **Result**: "go version go1.23 linux/amd64"
-6. **AI**: "Go is installed. Now writing server.go..."
-7. **Tool Call**: `write {path: "server.go", content: "package main\n\nimport (...)"}`
-8. **Result**: "File written: server.go (150 bytes)"
-9. **AI**: "Server written. Let me test it..."
-10. **Tool Call**: `exec {command: "go run server.go &"}`
-11. **Final**: "HTTP server running on :8080. Use curl to test."
+### Set Up a New Project
+```bash
+./zen-claw agent --session-id new-project "Set up a new Go web server with:
+1. Create main.go with HTTP server
+2. Create go.mod file
+3. Create README.md
+4. Create a simple test"
+```
 
-## Why Go?
+### Debug Issues
+```bash
+./zen-claw agent --verbose "Debug why this Go program won't compile"
+```
 
-- **Performance**: Native compilation, fast execution
-- **Simplicity**: Clear syntax, minimal dependencies  
-- **Concurrency**: Goroutines for parallel tool execution
-- **Portability**: Single binary, cross-platform
-- **Ecosystem**: Rich libraries for AI, web, CLI
+### Refactor Code
+```bash
+./zen-claw agent "Refactor this function to be more readable and efficient"
+```
+
+## 4. Gateway API Examples
+
+The gateway provides a REST API that agents and other clients can use:
+
+### Health Check
+```bash
+curl http://localhost:8080/health
+```
+
+### Chat Endpoint
+```bash
+# Send a chat request to the gateway
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_input": "What is in the current directory?",
+    "session_id": "test-session",
+    "provider": "qwen",
+    "model": "qwen3-coder-30b-a3b-instruct",
+    "working_dir": ".",
+    "max_steps": 10
+  }'
+```
+
+### List Sessions
+```bash
+curl http://localhost:8080/sessions
+```
+
+### Get Specific Session
+```bash
+curl http://localhost:8080/sessions/test-session
+```
+
+### Delete Session
+```bash
+curl -X DELETE http://localhost:8080/sessions/test-session
+```
+
+## 5. Provider-Specific Examples
+
+### Using Qwen (262K Context)
+```bash
+# Qwen is excellent for large codebases
+./zen-claw agent --provider qwen --model qwen3-coder-30b-a3b-instruct \
+  "Analyze the entire codebase and suggest architectural improvements"
+```
+
+### Using DeepSeek (Fast and Cheap)
+```bash
+# DeepSeek is great for quick tasks
+./zen-claw agent --provider deepseek "Write a simple Go function"
+```
+
+## 6. Tool Usage Examples
+
+The AI can use these tools automatically:
+
+### File Operations
+```bash
+# The AI will use read_file, list_dir tools automatically
+./zen-claw agent "Read the README.md file"
+```
+
+### Shell Commands
+```bash
+# The AI can run commands with exec tool
+./zen-claw agent "Check Go version and list Go files"
+```
+
+### Directory Navigation
+```bash
+# The AI can change directories
+./zen-claw agent "Go to the src directory and list files"
+```
+
+## 7. Session Management Examples
+
+### Continue Previous Session
+```bash
+# Start a session with an ID
+./zen-claw agent --session-id my-task "Set up a database connection"
+
+# Later, continue the same session
+./zen-claw agent --session-id my-task "Now add authentication"
+```
+
+### List All Sessions
+```bash
+# Sessions are stored in /tmp/zen-claw-sessions/
+ls -la /tmp/zen-claw-sessions/
+```
+
+## 8. Configuration Examples
+
+### Environment Variables
+```bash
+# Set API keys
+export QWEN_API_KEY="sk-..."
+export DEEPSEEK_API_KEY="sk-..."
+
+# Or use config file: ~/.zen/zen-claw/config.yaml
+```
+
+### Config File
+```yaml
+# ~/.zen/zen-claw/config.yaml
+providers:
+  deepseek:
+    api_key: "sk-f31ee108d00a43839a7ee392f8cab939"
+    model: "deepseek-chat"
+    base_url: "https://api.deepseek.com"
+  
+  qwen:
+    api_key: "sk-6683180cd0df426c938c67e965bee586"
+    model: "qwen3-coder-30b-a3b-instruct"
+    base_url: "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
+
+default:
+  provider: "deepseek"
+  model: "deepseek-chat"
+```
+
+## 9. Real-World Workflow
+
+### Complete Development Session
+```bash
+# 1. Start gateway
+./zen-claw gateway start
+
+# 2. Analyze existing code
+./zen-claw agent --session-id project-analysis \
+  "Analyze the current Go project structure and identify issues"
+
+# 3. Implement fixes
+./zen-claw agent --session-id project-analysis \
+  "Implement the first improvement: add error handling"
+
+# 4. Test changes
+./zen-claw agent --session-id project-analysis \
+  "Run tests and check if everything works"
+
+# 5. Document changes
+./zen-claw agent --session-id project-analysis \
+  "Update the README with the new features"
+```
+
+## 10. Tips and Best Practices
+
+1. **Use session IDs** for multi-step tasks
+2. **Start with Qwen** for code analysis (large context)
+3. **Use DeepSeek** for quick tasks
+4. **Be specific** in your requests
+5. **Check gateway health** if things seem slow
+6. **Use verbose mode** for debugging: `--verbose`
+7. **Monitor session files** in `/tmp/zen-claw-sessions/`
+
+## Troubleshooting
+
+If something doesn't work:
+1. Check if gateway is running: `curl http://localhost:8080/health`
+2. Check API keys are configured
+3. Try with `--verbose` flag
+4. Check `/tmp/zen-gateway-*.log` for errors
+5. Restart gateway: `pkill -f "zen-claw gateway" && ./zen-claw gateway start`
 
 ## Next Steps
 
-1. **AI Integration**: Connect to real providers (OpenAI, DeepSeek)
-2. **Tool Completion**: Implement all tools from OpenClaw
-3. **Gateway**: WebSocket server with auth
-4. **Memory**: Persistent context across sessions
-5. **Skills**: Plugin system for specialized tasks
-
-## Philosophy in Action
-
-- **Trunk-based**: This entire project was built in one session on `main`
-- **Minimal**: No CI, no branches, just working code
-- **Practical**: Structure ready for AI integration in hours
-- **Atomic**: Each commit does one thing well
+Explore more advanced features:
+- Multiple concurrent agents
+- Custom tool development
+- Integration with other services
+- Web interface for the gateway
+- Advanced session management

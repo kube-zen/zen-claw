@@ -113,26 +113,54 @@ workspace:
   path: "~/.zen/zen-claw/workspace"
 ```
 
-## Interactive Model Switching
+## Interactive Mode Commands
 
-While working in a session, you can switch between different AI models:
+When using interactive mode (`./zen-claw agent`), you can use these commands:
 
-### Commands:
-- **`/models`** - Show all available models
-- **`/model qwen/qwen3-coder-30b`** - Switch to Qwen Coder
-- **`/model deepseek/deepseek-chat`** - Switch to DeepSeek
-- **`/model openai/gpt-4o`** - Switch to OpenAI GPT-4
+### Provider Management:
+- **`/providers`** - List all available AI providers
+- **`/provider <name>`** - Switch to specific provider (uses its default model)
+
+### Model Management:
+- **`/models`** - Show models for current provider only
+- **`/model <name>`** - Switch model within current provider
+
+### Session Management:
+- **`/help`** - Show all available commands
+- **`/exit`**, **`/quit`** - Exit interactive mode
 
 ### Example Workflow:
 ```bash
-# Start with default model (DeepSeek)
-zen-claw agent "analyze codebase"
+# Start interactive mode
+./zen-claw agent
 
-# In the session, type:
-/models                    # See available models
-/model qwen/qwen3-coder-30b # Switch to Qwen
-/code-review               # Continue with Qwen
+# In the session:
+/providers                 # List all providers
+/provider qwen             # Switch to Qwen provider
+/models                   # See Qwen models only
+/model qwen-plus          # Switch to qwen-plus model
+"analyze this code"       # Send task to AI
+/exit                     # Exit
 ```
+
+## Gateway Architecture
+
+Zen Claw uses a client-server architecture:
+
+1. **Gateway Server** (`./zen-claw gateway start`):
+   - Manages AI provider connections
+   - Handles session persistence
+   - Provides REST API on port 8080
+
+2. **Agent Client** (`./zen-claw agent`):
+   - Connects to gateway
+   - Sends tasks and receives results
+   - Interactive command interface
+
+3. **Session Persistence**:
+   - Sessions stored in `/tmp/zen-claw-sessions/`
+   - Survive gateway restarts
+   - Multiple clients can attach to same session
 
 ## Byobu Integration
 
@@ -153,6 +181,20 @@ Perfect for terminal-based workflow with Byobu:
 ## Private Testing Notes
 
 This is designed for private/internal use. No OSS considerations, just pure functionality evaluation.
+
+## Documentation
+
+- **[EXAMPLE.md](EXAMPLE.md)** - Practical usage examples
+- **[API.md](API.md)** - Gateway API documentation  
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
+
+## Quick Troubleshooting
+
+If something doesn't work:
+1. Check gateway is running: `curl http://localhost:8080/health`
+2. Rebuild after code changes: `go build -o zen-claw .`
+3. Check API keys in `~/.zen/zen-claw/config.yaml`
+4. See logs: `tail -f /tmp/zen-gateway-*.log`
 
 ## License
 
