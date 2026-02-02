@@ -1,8 +1,6 @@
 module github.com/neves/zen-claw
 
-go 1.24.4
-
-toolchain go1.24.12
+go 1.25.0
 
 require (
 	github.com/sashabaranov/go-openai v1.41.2
@@ -12,5 +10,5 @@ require (
 
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/spf13/pflag v1.0.9 // indirect
 )
