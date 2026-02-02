@@ -148,33 +148,14 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req ai.ChatRequest)
 	}
 
 	// Apply context limit with proper tool call sequence handling
-	if p.name == "qwen" {
-		if !req.QwenLargeContextEnabled {
-			// Large context disabled: respect user's context limit but cap at reasonable max
-			// to avoid 256k negotiation crashes and slow API responses
-			// User can set higher limit, but we cap at 50 for safety when large context is off
-			maxAllowed := 50
-			if contextLimit > 0 && contextLimit < maxAllowed {
-				// User set a limit lower than max, use it
-				messages = truncateMessages(messages, contextLimit)
-			} else if contextLimit > 0 {
-				// User set a limit higher than max, cap it
-				messages = truncateMessages(messages, maxAllowed)
-			} else {
-				// No limit set, use default safe limit
-				messages = truncateMessages(messages, maxAllowed)
-			}
-		} else {
-			// Large context enabled: respect context limit fully (no cap)
-			if contextLimit > 0 {
-				messages = truncateMessages(messages, contextLimit)
-			}
-		}
-	} else {
-		// For other providers: apply context limit
-		if contextLimit > 0 {
-			messages = truncateMessages(messages, contextLimit)
-		}
+	// For all providers including Qwen: respect user's context limit setting
+	if contextLimit > 0 {
+		messages = truncateMessages(messages, contextLimit)
+	} else if p.name == "qwen" && !req.QwenLargeContextEnabled {
+		// Qwen with large context disabled and no user limit: use safe default (10)
+		// This only applies when user hasn't set a context limit
+		// If user sets /context-limit, we respect it fully regardless of large context setting
+		messages = truncateMessages(messages, 10)
 	}
 
 	// Convert messages to OpenAI format
