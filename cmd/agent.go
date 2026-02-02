@@ -6,15 +6,9 @@ import (
 	"io"
 	"os"
 	"strings"
-	"time"
-t"github.com/neves/zen-claw/internal/streaming"
 
 	"github.com/spf13/cobra"
 )
-
-tvar stream bool
-
-	cmd.Flags().BoolVar(&stream, "stream", false, "Enable real-time streaming")
 
 func newAgentCmd() *cobra.Command {
 	var model string
@@ -22,15 +16,9 @@ func newAgentCmd() *cobra.Command {
 	var workingDir string
 	var sessionID string
 	var showProgress bool
-t		if stream {
-				runAgentStream(task, model, provider, workingDir, sessionID, showProgress, maxSteps, verbose)
-			} else {
-				runAgent(task, model, provider, workingDir, sessionID, showProgress, maxSteps, verbose)
-			}
-
 	var maxSteps int
 	var verbose bool
-	
+
 	cmd := &cobra.Command{
 		Use:   "agent",
 		Short: "Lightweight AI agent (console → Slack/Telegram compatible)",
@@ -75,7 +63,7 @@ Examples:
 			runAgent(task, model, provider, workingDir, sessionID, showProgress, maxSteps, verbose)
 		},
 	}
-	
+
 	cmd.Flags().StringVar(&model, "model", "", "AI model (e.g., deepseek-chat)")
 	cmd.Flags().StringVar(&provider, "provider", "", "AI provider (deepseek, openai, glm, minimax, qwen)")
 	cmd.Flags().StringVar(&workingDir, "working-dir", ".", "Working directory for tools")
@@ -83,7 +71,7 @@ Examples:
 	cmd.Flags().BoolVar(&showProgress, "progress", false, "Show progress in console (CLI only)")
 	cmd.Flags().IntVar(&maxSteps, "max-steps", 50, "Maximum tool execution steps")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Enable verbose output for debugging")
-	
+
 	return cmd
 }
 
@@ -93,11 +81,11 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 		runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID, showProgress, maxSteps, verbose)
 		return
 	}
-	
+
 	if verbose {
 		fmt.Println("🔧 Verbose mode enabled")
 	}
-	
+
 	if showProgress {
 		fmt.Println("🚀 Zen Agent - Gateway Client")
 	} else {
@@ -109,35 +97,35 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 		fmt.Printf("Session ID: %s (save for continuing in Slack/Telegram)\n", sessionID)
 	}
 	fmt.Printf("Working directory: %s\n", workingDir)
-	
+
 	// Create gateway client
 	client := NewGatewayClient("http://localhost:8080")
-	
+
 	// Check if gateway is running
 	if err := client.HealthCheck(); err != nil {
 		fmt.Printf("\n❌ Gateway not available: %v\n", err)
 		fmt.Println("   Start the gateway first: zen-claw gateway start")
 		os.Exit(1)
 	}
-	
+
 	if verbose {
 		fmt.Println("✓ Gateway is healthy")
 	}
-	
+
 	// Determine provider and model - in runAgent function
 	providerName := providerFlag
 	modelName := modelFlag
-	
+
 	// If model is specified but provider isn't, try to infer provider from model
 	if modelName != "" && providerName == "" {
 		providerName = inferProviderFromModel(modelName)
 	}
-	
+
 	// If provider still not determined, use default
 	if providerName == "" {
 		providerName = "deepseek" // Default
 	}
-	
+
 	// If model not specified, use default for provider
 	if modelName == "" {
 		// Default models per provider
@@ -156,12 +144,12 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 			modelName = "deepseek-chat"
 		}
 	}
-	
+
 	fmt.Printf("Provider: %s, Model: %s\n", providerName, modelName)
 	if showProgress {
 		fmt.Println()
 	}
-	
+
 	// Prepare request
 	req := ChatRequest{
 		SessionID:  sessionID,
@@ -171,7 +159,7 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 		Model:      modelName,
 		MaxSteps:   maxSteps,
 	}
-	
+
 	if showProgress {
 		fmt.Println("🤖 Sending request to gateway...")
 		fmt.Println()
@@ -182,42 +170,27 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 		fmt.Printf("   Task: %s\n", task)
 		fmt.Println()
 	}
-	
+
 	// Send request to gateway
-	var spinner *Spinner
-	if showProgress {
-		spinner = NewSpinner("⏳ Processing...")
-		spinner.Start()
-	} else {
-		// Still show minimal progress
-		fmt.Print("⏳ Processing... ")
-	}
-	
 	resp, err := client.Send(req)
-	
-	if showProgress && spinner != nil {
-		spinner.Stop()
-	} else {
-		fmt.Println("done")
-	}
 	if err != nil {
 		fmt.Printf("\n❌ Gateway request failed: %v\n", err)
 		os.Exit(1)
 	}
-	
+
 	// Check for error in response
 	if resp.Error != "" {
 		fmt.Printf("\n❌ Agent execution failed: %s\n", resp.Error)
 		os.Exit(1)
 	}
-	
+
 	// Print result
 	fmt.Println("\n" + strings.Repeat("═", 80))
 	fmt.Println("🎯 RESULT (via Gateway)")
 	fmt.Println(strings.Repeat("═", 80))
 	fmt.Println(resp.Result)
 	fmt.Println(strings.Repeat("═", 80))
-	
+
 	// Print session info from gateway response
 	if sessionInfo := resp.SessionInfo; sessionInfo != nil {
 		fmt.Printf("\n📊 Session Information:\n")
@@ -240,7 +213,7 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 			fmt.Printf("   Working directory: %s\n", wd)
 		}
 	}
-	
+
 	if showProgress {
 		fmt.Printf("\n💡 To continue this session:\n")
 		fmt.Printf("   zen-claw agent --session-id %s \"your next task\"\n", resp.SessionID)
@@ -257,39 +230,41 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 	fmt.Println("  /provider <name>    - Switch to a specific provider")
 	fmt.Println("  /models            - List models for current provider")
 	fmt.Println("  /model <name>      - Switch model within current provider")
+	fmt.Println("  /context-limit [n] - Set context limit (default 50, 0=unlimited)")
+	fmt.Println("  /qwen-large-context [on|off] - Enable/disable Qwen 256k context (default off)")
 	fmt.Println("  /exit, /quit       - Exit interactive mode")
 	fmt.Println("  /help              - Show this help")
 	fmt.Println("═" + strings.Repeat("═", 78))
-	
+
 	if sessionID != "" {
 		fmt.Printf("Session ID: %s\n", sessionID)
 	}
 	fmt.Printf("Working directory: %s\n", workingDir)
-	
+
 	// Create gateway client
 	client := NewGatewayClient("http://localhost:8080")
-	
+
 	// Check if gateway is running
 	if err := client.HealthCheck(); err != nil {
 		fmt.Printf("\n❌ Gateway not available: %v\n", err)
 		fmt.Println("   Start the gateway first: zen-claw gateway start")
 		return
 	}
-	
+
 	// Determine provider and model - in runInteractiveMode function
 	providerName := providerFlag
 	modelName := modelFlag
-	
+
 	// If model is specified but provider isn't, try to infer provider from model
 	if modelName != "" && providerName == "" {
 		providerName = inferProviderFromModel(modelName)
 	}
-	
+
 	// If provider still not determined, use default
 	if providerName == "" {
 		providerName = "deepseek" // Default
 	}
-	
+
 	// If model not specified, use default for provider
 	if modelName == "" {
 		// Default models per provider
@@ -308,10 +283,10 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			modelName = "deepseek-chat"
 		}
 	}
-	
+
 	fmt.Printf("Provider: %s, Model: %s\n", providerName, modelName)
 	fmt.Println("═" + strings.Repeat("═", 78))
-	
+
 	// Simple interactive loop
 	reader := bufio.NewReader(os.Stdin)
 	for {
@@ -325,12 +300,12 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			fmt.Printf("Error reading input: %v\n", err)
 			continue
 		}
-		
+
 		input = strings.TrimSpace(input)
 		if input == "" {
 			continue
 		}
-		
+
 		// Handle special commands
 		switch {
 		case input == "/exit" || input == "/quit":
@@ -342,6 +317,8 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			fmt.Println("  /provider <name>    - Switch to a specific provider")
 			fmt.Println("  /models            - List models for current provider")
 			fmt.Println("  /model <name>      - Switch model within current provider")
+			fmt.Println("  /context-limit [n] - Set context limit (default 50, 0=unlimited)")
+			fmt.Println("  /qwen-large-context [on|off] - Enable/disable Qwen 256k context (default off)")
 			fmt.Println("  /exit, /quit       - Exit interactive mode")
 			fmt.Println("  /help              - Show this help")
 			continue
@@ -363,7 +340,7 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			} else {
 				newProvider = strings.TrimSpace(strings.TrimPrefix(input, "/providers "))
 			}
-			
+
 			// Validate provider
 			validProviders := []string{"deepseek", "qwen", "glm", "minimax", "openai"}
 			isValid := false
@@ -373,14 +350,14 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 					break
 				}
 			}
-			
+
 			if !isValid {
 				fmt.Printf("Unknown provider: %s. Valid providers: %v\n", newProvider, validProviders)
 				continue
 			}
-			
+
 			providerName = newProvider
-			
+
 			// Reset to default model for this provider
 			switch providerName {
 			case "deepseek":
@@ -394,7 +371,7 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			case "openai":
 				modelName = "gpt-4o-mini"
 			}
-			
+
 			fmt.Printf("Switched to provider: %s (model: %s)\n", providerName, modelName)
 			continue
 		case input == "/models":
@@ -431,17 +408,64 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 		case strings.HasPrefix(input, "/model "):
 			newModel := strings.TrimSpace(strings.TrimPrefix(input, "/model "))
 			modelName = newModel
-			
+
 			// Verify model is compatible with current provider
 			if !isModelCompatibleWithProvider(newModel, providerName) {
 				fmt.Printf("Warning: Model '%s' may not be compatible with provider '%s'\n", newModel, providerName)
 				fmt.Printf("Consider switching provider first with '/provider <provider-name>'\n")
 			}
-			
+
 			fmt.Printf("Model switched to: %s (provider: %s)\n", modelName, providerName)
 			continue
+		case strings.HasPrefix(input, "/context-limit"):
+			// This will be handled by the agent, but we can show usage here
+			parts := strings.Fields(input)
+			if len(parts) == 1 {
+				fmt.Println("Usage: /context-limit [number]")
+				fmt.Println("  Set context limit (number of messages to send)")
+				fmt.Println("  Use 0 for unlimited, default is 50")
+				fmt.Println("  Example: /context-limit 100")
+			} else {
+				// Forward to agent - it will handle it
+				req := ChatRequest{
+					SessionID:  sessionID,
+					UserInput:  input,
+					WorkingDir: workingDir,
+					Provider:   providerName,
+					Model:      modelName,
+					MaxSteps:   maxSteps,
+				}
+				resp, err := client.Send(req)
+				if err != nil {
+					fmt.Printf("❌ Error: %v\n", err)
+				} else if resp.Error != "" {
+					fmt.Printf("❌ Error: %s\n", resp.Error)
+				} else {
+					fmt.Println(resp.Result)
+				}
+			}
+			continue
+		case strings.HasPrefix(input, "/qwen-large-context"):
+			// Forward to agent - it will handle it
+			req := ChatRequest{
+				SessionID:  sessionID,
+				UserInput:  input,
+				WorkingDir: workingDir,
+				Provider:   providerName,
+				Model:      modelName,
+				MaxSteps:   maxSteps,
+			}
+			resp, err := client.Send(req)
+			if err != nil {
+				fmt.Printf("❌ Error: %v\n", err)
+			} else if resp.Error != "" {
+				fmt.Printf("❌ Error: %s\n", resp.Error)
+			} else {
+				fmt.Println(resp.Result)
+			}
+			continue
 		}
-		
+
 		// Process task
 		req := ChatRequest{
 			SessionID:  sessionID,
@@ -451,27 +475,27 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			Model:      modelName,
 			MaxSteps:   maxSteps,
 		}
-		
+
 		// Send request to gateway
 		resp, err := client.Send(req)
 		if err != nil {
 			fmt.Printf("❌ Error: %v\n", err)
 			continue
 		}
-		
+
 		// Check for error in response
 		if resp.Error != "" {
 			fmt.Printf("❌ Agent error: %s\n", resp.Error)
 			continue
 		}
-		
+
 		// Print result
 		fmt.Println("\n" + strings.Repeat("═", 80))
 		fmt.Println("🎯 RESULT")
 		fmt.Println(strings.Repeat("═", 80))
 		fmt.Println(resp.Result)
 		fmt.Println(strings.Repeat("═", 80))
-		
+
 		// Update session ID for continuation
 		sessionID = resp.SessionID
 	}
@@ -480,7 +504,7 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 // inferProviderFromModel tries to infer provider from model name
 func inferProviderFromModel(modelName string) string {
 	modelName = strings.ToLower(modelName)
-	
+
 	// Check for provider patterns in model name
 	if strings.Contains(modelName, "qwen") {
 		return "qwen"
@@ -493,7 +517,7 @@ func inferProviderFromModel(modelName string) string {
 	} else if strings.Contains(modelName, "gpt") {
 		return "openai"
 	}
-	
+
 	// Could not infer provider
 	return ""
 }
@@ -502,7 +526,7 @@ func inferProviderFromModel(modelName string) string {
 func isModelCompatibleWithProvider(modelName, provider string) bool {
 	modelName = strings.ToLower(modelName)
 	provider = strings.ToLower(provider)
-	
+
 	switch provider {
 	case "qwen":
 		return strings.Contains(modelName, "qwen")
@@ -515,51 +539,7 @@ func isModelCompatibleWithProvider(modelName, provider string) bool {
 	case "openai":
 		return strings.Contains(modelName, "gpt")
 	}
-	
+
 	// Unknown provider, assume compatible
 	return true
-}
-
-// Spinner provides a simple terminal spinner for progress indication
-type Spinner struct {
-	message string
-	stop    chan bool
-	done    chan bool
-}
-
-// NewSpinner creates a new spinner
-func NewSpinner(message string) *Spinner {
-	return &Spinner{
-		message: message,
-		stop:    make(chan bool),
-		done:    make(chan bool),
-	}
-}
-
-// Start starts the spinner animation
-func (s *Spinner) Start() {
-	go func() {
-		frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-		i := 0
-		
-		for {
-			select {
-			case <-s.stop:
-				// Clear line and show final message
-				fmt.Printf("\r%s✓ %s\n", strings.Repeat(" ", 50), s.message)
-				s.done <- true
-				return
-			default:
-				fmt.Printf("\r%s %s", frames[i], s.message)
-				i = (i + 1) % len(frames)
-				time.Sleep(100 * time.Millisecond)
-			}
-		}
-	}()
-}
-
-// Stop stops the spinner animation
-func (s *Spinner) Stop() {
-	s.stop <- true
-	<-s.done
 }

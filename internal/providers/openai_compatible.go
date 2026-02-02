@@ -82,29 +82,70 @@ func (p *OpenAICompatibleProvider) SupportsTools() bool {
 	return true // All OpenAI-compatible APIs support tool calling
 }
 
-// Chat implements the AI provider interface with enhanced Qwen context management
+// Chat implements the AI provider interface
 func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
-	// Enhanced context window handling for Qwen
-	if p.name == "qwen" {
-		// Qwen supports up to 262K tokens, so we can be more aggressive with context
-		// This is a simplified approach - in practice, you'd want to implement
-		// smarter context truncation strategies
-		fmt.Printf("🔍 Qwen provider detected - optimizing for large context window\n")
+	messages := req.Messages
+
+	// Apply context limit if specified (0 = no limit)
+	contextLimit := req.ContextLimit
+	if contextLimit == 0 {
+		contextLimit = 50 // Default limit
 	}
-	
+
+	// For Qwen: check if large context is enabled
+	// If disabled (default), use small window to avoid crashes with 256k negotiation
+	// If enabled, still respect context limit but allow larger windows
+	if p.name == "qwen" {
+		if !req.QwenLargeContextEnabled {
+			// Large context disabled: use small window (20 messages) to avoid 256k negotiation crashes
+			const maxQwenMessages = 20
+			if len(messages) > maxQwenMessages {
+				start := len(messages) - maxQwenMessages
+				// Keep system message if it's the first one
+				if len(messages) > 0 && messages[0].Role == "system" {
+					messages = append([]ai.Message{messages[0]}, messages[start+1:]...)
+				} else {
+					messages = messages[start:]
+				}
+			}
+		} else {
+			// Large context enabled: respect context limit but allow larger windows
+			if contextLimit > 0 && len(messages) > contextLimit {
+				start := len(messages) - contextLimit
+				// Keep system message if it's the first one
+				if len(messages) > 0 && messages[0].Role == "system" {
+					messages = append([]ai.Message{messages[0]}, messages[start+1:]...)
+				} else {
+					messages = messages[start:]
+				}
+			}
+		}
+	} else {
+		// For other providers: apply context limit
+		if contextLimit > 0 && len(messages) > contextLimit {
+			start := len(messages) - contextLimit
+			// Keep system message if it's the first one
+			if len(messages) > 0 && messages[0].Role == "system" {
+				messages = append([]ai.Message{messages[0]}, messages[start+1:]...)
+			} else {
+				messages = messages[start:]
+			}
+		}
+	}
+
 	// Convert messages to OpenAI format
-	var messages []openai.ChatCompletionMessage
-	for _, msg := range req.Messages {
+	var openaiMessages []openai.ChatCompletionMessage
+	for _, msg := range messages {
 		openaiMsg := openai.ChatCompletionMessage{
 			Role:    msg.Role,
 			Content: msg.Content,
 		}
-		
+
 		// Handle tool role messages (need tool_call_id)
 		if msg.Role == "tool" && msg.ToolCallID != "" {
 			openaiMsg.ToolCallID = msg.ToolCallID
 		}
-		
+
 		// Handle assistant messages with tool calls
 		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
 			var toolCalls []openai.ToolCall
@@ -116,7 +157,7 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req ai.ChatRequest)
 						argsJSON = string(jsonBytes)
 					}
 				}
-				
+
 				toolCalls = append(toolCalls, openai.ToolCall{
 					ID:   tc.ID,
 					Type: openai.ToolTypeFunction,
@@ -128,8 +169,8 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req ai.ChatRequest)
 			}
 			openaiMsg.ToolCalls = toolCalls
 		}
-		
-		messages = append(messages, openaiMsg)
+
+		openaiMessages = append(openaiMessages, openaiMsg)
 	}
 
 	// Convert tools to OpenAI format
@@ -154,7 +195,7 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req ai.ChatRequest)
 	// Create completion request
 	completionReq := openai.ChatCompletionRequest{
 		Model:    model,
-		Messages: messages,
+		Messages: openaiMessages,
 		Tools:    tools,
 	}
 
@@ -201,7 +242,7 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req ai.ChatRequest)
 					args["_raw"] = toolCall.Function.Arguments
 				}
 			}
-			
+
 			chatResp.ToolCalls = append(chatResp.ToolCalls, ai.ToolCall{
 				ID:   toolCall.ID,
 				Name: toolCall.Function.Name,

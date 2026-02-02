@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
 )
 
 // SimpleLogger is a basic logger that doesn't depend on external SDKs

@@ -2,9 +2,7 @@ package tools
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
-	"strings"
 )
 
 // GitTool implements Git operations

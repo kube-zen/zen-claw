@@ -2,20 +2,16 @@ package cmd
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
-
-	"github.com/kube-zen/zen-sdk/pkg/logging"
 )
 
 // GatewayClient handles communication with the Zen Claw gateway
 type GatewayClient struct {
 	baseURL  string
 	client   *http.Client
-	logger   *logging.Logger
 }
 
 // NewGatewayClient creates a new gateway client
@@ -25,7 +21,6 @@ func NewGatewayClient(baseURL string) *GatewayClient {
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		logger: logging.NewLogger("gateway-client"),
 	}
 }
 
@@ -49,7 +44,7 @@ type ChatResponse struct {
 
 // HealthCheck checks if the gateway is reachable
 func (gc *GatewayClient) HealthCheck() error {
-	url := fmt.Sprintf("%s/api/v1/health", gc.baseURL)
+	url := fmt.Sprintf("%s/health", gc.baseURL)
 	
 	resp, err := gc.client.Get(url)
 	if err != nil {
@@ -66,7 +61,7 @@ func (gc *GatewayClient) HealthCheck() error {
 
 // Send sends a chat request to the gateway
 func (gc *GatewayClient) Send(req ChatRequest) (*ChatResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/chat", gc.baseURL)
+	url := fmt.Sprintf("%s/chat", gc.baseURL)
 	
 	jsonReq, err := json.Marshal(req)
 	if err != nil {
@@ -108,7 +103,7 @@ type StreamResponse struct {
 
 // StartStream initiates a streaming session
 func (gc *GatewayClient) StartStream(sessionID, task string) (string, error) {
-	url := fmt.Sprintf("%s/api/v1/stream", gc.baseURL)
+	url := fmt.Sprintf("%s/stream", gc.baseURL)
 	
 	req := StreamRequest{
 		SessionID: sessionID,
