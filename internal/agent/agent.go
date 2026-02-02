@@ -175,7 +175,7 @@ func (a *Agent) getAIResponse(ctx context.Context, session *Session) (*ai.ChatRe
 	}
 
 	// Get response with timeout
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
 	return a.aiCaller.Chat(ctx, req)
