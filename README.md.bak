@@ -47,40 +47,6 @@ go build -o zen-claw .
 ./zen-claw agent --verbose "debug this issue"
 ```
 
-## Shell Autocomplete
-
-To enable tab completion in your shell:
-
-### Bash
-```bash
-source <(zen-claw completion bash)
-```
-
-To make it permanent, add to your `~/.bashrc`:
-```bash
-echo 'source <(zen-claw completion bash)' >> ~/.bashrc
-```
-
-### Zsh
-```bash
-source <(zen-claw completion zsh)
-```
-
-To make it permanent, add to your `~/.zshrc`:
-```bash
-echo 'source <(zen-claw completion zsh)' >> ~/.zshrc
-```
-
-### Fish
-```bash
-zen-claw completion fish | source
-```
-
-To make it permanent, add to your `~/.config/fish/completions/zen-claw.fish`:
-```bash
-zen-claw completion fish > ~/.config/fish/completions/zen-claw.fish
-```
-
 ## Core Features
 
 ### AI Agent

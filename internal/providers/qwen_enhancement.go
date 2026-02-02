@@ -4,7 +4,7 @@ package providers
 import (
 	"fmt"
 	"strings"
-	
+
 	"github.com/neves/zen-claw/internal/ai"
 )
 
@@ -18,7 +18,7 @@ func (p *OpenAICompatibleProvider) GetQwenModelInfo(modelName string) map[string
 	if !p.IsQwenProvider() {
 		return nil
 	}
-	
+
 	// Map of Qwen models to their characteristics
 	modelInfo := map[string]map[string]interface{}{
 		"qwen3-coder-30b": {
@@ -46,12 +46,12 @@ func (p *OpenAICompatibleProvider) GetQwenModelInfo(modelName string) map[string
 			"description":    "Qwen Max with 131K context window - maximum capabilities",
 		},
 	}
-	
+
 	// Return specific model info or general Qwen info
 	if info, exists := modelInfo[strings.ToLower(modelName)]; exists {
 		return info
 	}
-	
+
 	// Return default Qwen info
 	return map[string]interface{}{
 		"name":           "qwen",
@@ -68,11 +68,11 @@ func (p *OpenAICompatibleProvider) OptimizeForQwenContext(messages []ai.Message,
 	if !p.IsQwenProvider() {
 		return messages
 	}
-	
+
 	// This function is deprecated - context management is now handled in Chat() method
 	// based on QwenLargeContextEnabled flag in ChatRequest
 	// Do not log or optimize here to avoid confusion
-	
+
 	return messages
 }
 
@@ -81,7 +81,7 @@ func (p *OpenAICompatibleProvider) ValidateQwenModel(modelName string) error {
 	if !p.IsQwenProvider() {
 		return nil
 	}
-	
+
 	// Check if model is a valid Qwen model
 	validModels := []string{
 		"qwen3-coder-30b",
@@ -92,13 +92,13 @@ func (p *OpenAICompatibleProvider) ValidateQwenModel(modelName string) error {
 		"qwen3-coder-480b-a35b-instruct",
 		"qwen3-coder-30b-a3b-instruct",
 	}
-	
+
 	modelName = strings.ToLower(modelName)
 	for _, validModel := range validModels {
 		if modelName == validModel {
 			return nil
 		}
 	}
-	
+
 	return fmt.Errorf("invalid Qwen model: %s. Valid models: %v", modelName, validModels)
 }
