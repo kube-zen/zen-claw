@@ -93,44 +93,75 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req ai.ChatRequest)
 	// Note: 0 means unlimited, non-zero means that many messages
 	// The session defaults to 50, so if ContextLimit is 0 here, it means user set it to unlimited
 
-	// For Qwen: check if large context is enabled
-	// If disabled (default), use small window to avoid crashes with 256k negotiation
-	// If enabled, still respect context limit but allow larger windows
+	// truncateMessages truncates messages while preserving tool call sequences.
+	// Tool messages must follow an assistant message with tool_calls, so we can't break that pattern.
+	truncateMessages := func(msgs []ai.Message, maxCount int) []ai.Message {
+		if len(msgs) <= maxCount {
+			return msgs
+		}
+		
+		// Keep system message if present
+		hasSystem := len(msgs) > 0 && msgs[0].Role == "system"
+		startIdx := 0
+		if hasSystem {
+			startIdx = 1
+			maxCount-- // Reserve one slot for system message
+		}
+		
+		// Calculate where to start truncation
+		truncateStart := len(msgs) - maxCount
+		if truncateStart <= startIdx {
+			return msgs // No truncation needed
+		}
+		
+		// Find the start of the first complete tool call sequence after truncateStart
+		// A tool call sequence is: assistant (with tool_calls) -> tool -> tool -> ... -> assistant
+		// We need to ensure we don't cut in the middle of a sequence
+		actualStart := truncateStart
+		for i := truncateStart; i < len(msgs); i++ {
+			// If we find a tool message, we need to include its preceding assistant message
+			if msgs[i].Role == "tool" {
+				// Look backwards for the assistant message with tool_calls
+				for j := i - 1; j >= startIdx; j-- {
+					if msgs[j].Role == "assistant" && len(msgs[j].ToolCalls) > 0 {
+						// Found the assistant with tool_calls, start from here
+						actualStart = j
+						break
+					}
+					if msgs[j].Role != "tool" {
+						// Not part of this tool sequence, stop looking
+						break
+					}
+				}
+				break
+			}
+		}
+		
+		// Build result
+		result := make([]ai.Message, 0, maxCount+1)
+		if hasSystem {
+			result = append(result, msgs[0])
+		}
+		result = append(result, msgs[actualStart:]...)
+		
+		return result
+	}
+
+	// Apply context limit with proper tool call sequence handling
 	if p.name == "qwen" {
 		if !req.QwenLargeContextEnabled {
 			// Large context disabled: use small window (20 messages) to avoid 256k negotiation crashes
-			const maxQwenMessages = 20
-			if len(messages) > maxQwenMessages {
-				start := len(messages) - maxQwenMessages
-				// Keep system message if it's the first one
-				if len(messages) > 0 && messages[0].Role == "system" {
-					messages = append([]ai.Message{messages[0]}, messages[start+1:]...)
-				} else {
-					messages = messages[start:]
-				}
-			}
+			messages = truncateMessages(messages, 20)
 		} else {
 			// Large context enabled: respect context limit but allow larger windows
-			if contextLimit > 0 && len(messages) > contextLimit {
-				start := len(messages) - contextLimit
-				// Keep system message if it's the first one
-				if len(messages) > 0 && messages[0].Role == "system" {
-					messages = append([]ai.Message{messages[0]}, messages[start+1:]...)
-				} else {
-					messages = messages[start:]
-				}
+			if contextLimit > 0 {
+				messages = truncateMessages(messages, contextLimit)
 			}
 		}
 	} else {
 		// For other providers: apply context limit
-		if contextLimit > 0 && len(messages) > contextLimit {
-			start := len(messages) - contextLimit
-			// Keep system message if it's the first one
-			if len(messages) > 0 && messages[0].Role == "system" {
-				messages = append([]ai.Message{messages[0]}, messages[start+1:]...)
-			} else {
-				messages = messages[start:]
-			}
+		if contextLimit > 0 {
+			messages = truncateMessages(messages, contextLimit)
 		}
 	}
 
