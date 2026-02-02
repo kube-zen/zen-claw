@@ -7,10 +7,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/chzyer/readline"
 	"github.com/spf13/cobra"
 )
+
+// Global variables for thinking cursor
+var thinkingCursorActive = false
+var thinkingCursorTicker *time.Ticker
+var thinkingCursorStop chan bool
 
 func newAgentCmd() *cobra.Command {
 	var model string
@@ -20,6 +26,7 @@ func newAgentCmd() *cobra.Command {
 	var showProgress bool
 	var maxSteps int
 	var verbose bool
+	var think bool
 
 	cmd := &cobra.Command{
 		Use:   "agent",
@@ -62,7 +69,7 @@ Examples:
 			if len(args) > 0 {
 				task = args[0]
 			}
-			runAgent(task, model, provider, workingDir, sessionID, showProgress, maxSteps, verbose)
+			runAgent(task, model, provider, workingDir, sessionID, showProgress, maxSteps, verbose, think)
 		},
 	}
 
@@ -73,14 +80,15 @@ Examples:
 	cmd.Flags().BoolVar(&showProgress, "progress", false, "Show progress in console (CLI only)")
 	cmd.Flags().IntVar(&maxSteps, "max-steps", 50, "Maximum tool execution steps")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Enable verbose output for debugging")
+	cmd.Flags().BoolVar(&think, "think", false, "Show AI thinking process with cursor animation")
 
 	return cmd
 }
 
-func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool) {
+func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool, think bool) {
 	// Interactive mode if no task provided
 	if task == "" {
-		runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID, showProgress, maxSteps, verbose)
+		runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID, showProgress, maxSteps, verbose, think)
 		return
 	}
 
@@ -173,11 +181,21 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 		fmt.Println()
 	}
 
+	// Show thinking cursor if enabled
+	if think {
+		go showThinkingCursor(task)
+	}
+
 	// Send request to gateway
 	resp, err := client.Send(req)
 	if err != nil {
 		fmt.Printf("\n❌ Gateway request failed: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Stop thinking cursor if it was running
+	if think {
+		stopThinkingCursor()
 	}
 
 	// Check for error in response
@@ -223,7 +241,7 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 }
 
 // runInteractiveMode runs the agent in interactive mode
-func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool) {
+func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool, think bool) {
 	fmt.Println("🚀 Zen Agent - Interactive Mode")
 	fmt.Println("═" + strings.Repeat("═", 78))
 	fmt.Println("Entering interactive mode. Type your tasks, one per line.")
@@ -618,4 +636,42 @@ func isModelCompatibleWithProvider(modelName, provider string) bool {
 
 	// Unknown provider, assume compatible
 	return true
+}
+
+// showThinkingCursor displays an animated cursor while processing
+func showThinkingCursor(task string) {
+	thinkingCursorActive = true
+	thinkingCursorStop = make(chan bool, 1)
+
+	cursor := []string{"|", "/", "-", "\\"}
+	cursorIndex := 0
+
+	ticker := time.NewTicker(150 * time.Millisecond)
+	defer ticker.Stop()
+
+	fmt.Printf("\n🧠 Thinking: %s ", task)
+
+	for {
+		select {
+		case <-ticker.C:
+			if !thinkingCursorActive {
+				return
+			}
+			// Move to next cursor character
+			cursorIndex = (cursorIndex + 1) % len(cursor)
+			// Clear the line and print new cursor
+			fmt.Printf("\r🧠 Thinking: %s %s", task, cursor[cursorIndex])
+		case <-thinkingCursorStop:
+			fmt.Printf("\r🧠 Thinking: %s ✅\n", task)
+			return
+		}
+	}
+}
+
+// stopThinkingCursor stops the thinking cursor
+func stopThinkingCursor() {
+	if thinkingCursorActive {
+		thinkingCursorActive = false
+		thinkingCursorStop <- true
+	}
 }
