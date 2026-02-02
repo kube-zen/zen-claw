@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	
+	"path/filepath"
 	"strings"
 
+	"github.com/chzyer/readline"
 	"github.com/spf13/cobra"
 )
 
@@ -288,18 +289,36 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 	fmt.Printf("Provider: %s, Model: %s\n", providerName, modelName)
 	fmt.Println("═" + strings.Repeat("═", 78))
 
-	// Simple interactive loop
-	reader := bufio.NewReader(os.Stdin)
+	// Setup readline for improved interactive mode (history, editing, etc.)
+	historyFile := filepath.Join(os.Getenv("HOME"), ".zen-claw-history")
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:          "\n> ",
+		HistoryFile:     historyFile,
+		HistoryLimit:    1000,
+		AutoComplete:    nil, // Can add custom completer later
+		InterruptPrompt: "^C",
+		EOFPrompt:       "exit",
+		HistorySearchFold: true,
+	})
+	if err != nil {
+		// Fallback to basic input if readline fails
+		fmt.Printf("Warning: readline not available, using basic input: %v\n", err)
+		runBasicInteractiveMode(client, sessionID, workingDir, providerName, modelName, maxSteps)
+		return
+	}
+	defer rl.Close()
+
+	// Interactive loop with readline
 	for {
-		fmt.Print("\n> ")
-		input, err := reader.ReadString('\n')
+		input, err := rl.Readline()
 		if err != nil {
-			if err == io.EOF {
-				fmt.Println("\nExiting...")
-				return
+			if err == readline.ErrInterrupt {
+				fmt.Println("\nInterrupted. Use /exit to quit.")
+				continue
 			}
-			fmt.Printf("Error reading input: %v\n", err)
-			continue
+			// EOF or other error - exit
+			fmt.Println("\nExiting...")
+			return
 		}
 
 		input = strings.TrimSpace(input)
@@ -498,6 +517,62 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 		fmt.Println(strings.Repeat("═", 80))
 
 		// Update session ID for continuation
+		sessionID = resp.SessionID
+	}
+}
+
+// runBasicInteractiveMode is a fallback when readline is not available
+func runBasicInteractiveMode(client *GatewayClient, sessionID, workingDir, providerName, modelName string, maxSteps int) {
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Print("\n> ")
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				fmt.Println("\nExiting...")
+				return
+			}
+			fmt.Printf("Error reading input: %v\n", err)
+			continue
+		}
+
+		input = strings.TrimSpace(input)
+		if input == "" {
+			continue
+		}
+
+		if input == "/exit" || input == "/quit" {
+			fmt.Println("Exiting interactive mode...")
+			return
+		}
+
+		// Process task
+		req := ChatRequest{
+			SessionID:  sessionID,
+			UserInput:  input,
+			WorkingDir: workingDir,
+			Provider:   providerName,
+			Model:      modelName,
+			MaxSteps:   maxSteps,
+		}
+
+		resp, err := client.Send(req)
+		if err != nil {
+			fmt.Printf("❌ Error: %v\n", err)
+			continue
+		}
+
+		if resp.Error != "" {
+			fmt.Printf("❌ Agent error: %s\n", resp.Error)
+			continue
+		}
+
+		fmt.Println("\n" + strings.Repeat("═", 80))
+		fmt.Println("🎯 RESULT")
+		fmt.Println(strings.Repeat("═", 80))
+		fmt.Println(resp.Result)
+		fmt.Println(strings.Repeat("═", 80))
+
 		sessionID = resp.SessionID
 	}
 }
