@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -37,6 +39,9 @@ Examples:
   # Start a new session
   zen-claw agent "analyze project"
   
+  # Start interactive mode (no arguments)
+  zen-claw agent
+  
   # Start with session ID (save for continuing)
   zen-claw agent --session-id my-task "check codebase"
   
@@ -45,13 +50,17 @@ Examples:
   
   # Switch models during session:
   # Type "/models" to see available models
-  # Type "/model qwen/qwen3-coder-30b" to switch to Qwen
+  # Type "/model qwen/qwen3-coder-30b-a3b-instruct" to switch to Qwen
   
   # Continue session from another client (future):
   # Use same session ID in Slack/Telegram bot`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			runAgent(args[0], model, provider, workingDir, sessionID, showProgress, maxSteps, verbose)
+			task := ""
+			if len(args) > 0 {
+				task = args[0]
+			}
+			runAgent(task, model, provider, workingDir, sessionID, showProgress, maxSteps, verbose)
 		},
 	}
 	
@@ -67,6 +76,12 @@ Examples:
 }
 
 func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool) {
+	// Interactive mode if no task provided
+	if task == "" {
+		runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID, showProgress, maxSteps, verbose)
+		return
+	}
+	
 	if verbose {
 		fmt.Println("🔧 Verbose mode enabled")
 	}
@@ -194,5 +209,148 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 	if showProgress {
 		fmt.Printf("\n💡 To continue this session:\n")
 		fmt.Printf("   zen-claw agent --session-id %s \"your next task\"\n", resp.SessionID)
+	}
+}
+
+// runInteractiveMode runs the agent in interactive mode
+func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool) {
+	fmt.Println("🚀 Zen Agent - Interactive Mode")
+	fmt.Println("═" + strings.Repeat("═", 78))
+	fmt.Println("Entering interactive mode. Type your tasks, one per line.")
+	fmt.Println("Special commands:")
+	fmt.Println("  /models     - List available models")
+	fmt.Println("  /model <name> - Switch to a different model")
+	fmt.Println("  /exit, /quit - Exit interactive mode")
+	fmt.Println("  /help       - Show this help")
+	fmt.Println("═" + strings.Repeat("═", 78))
+	
+	if sessionID != "" {
+		fmt.Printf("Session ID: %s\n", sessionID)
+	}
+	fmt.Printf("Working directory: %s\n", workingDir)
+	
+	// Create gateway client
+	client := NewGatewayClient("http://localhost:8080")
+	
+	// Check if gateway is running
+	if err := client.HealthCheck(); err != nil {
+		fmt.Printf("\n❌ Gateway not available: %v\n", err)
+		fmt.Println("   Start the gateway first: zen-claw gateway start")
+		return
+	}
+	
+	// Determine provider and model
+	providerName := providerFlag
+	if providerName == "" {
+		providerName = "deepseek" // Default
+	}
+	
+	modelName := modelFlag
+	if modelName == "" {
+		// Default models per provider
+		switch providerName {
+		case "deepseek":
+			modelName = "deepseek-chat"
+		case "qwen":
+			modelName = "qwen3-coder-30b-a3b-instruct"
+		case "glm":
+			modelName = "glm-4.7"
+		case "minimax":
+			modelName = "minimax-M2.1"
+		case "openai":
+			modelName = "gpt-4o-mini"
+		default:
+			modelName = "deepseek-chat"
+		}
+	}
+	
+	fmt.Printf("Provider: %s, Model: %s\n", providerName, modelName)
+	fmt.Println("═" + strings.Repeat("═", 78))
+	
+	// Simple interactive loop
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Print("\n> ")
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				fmt.Println("\nExiting...")
+				return
+			}
+			fmt.Printf("Error reading input: %v\n", err)
+			continue
+		}
+		
+		input = strings.TrimSpace(input)
+		if input == "" {
+			continue
+		}
+		
+		// Handle special commands
+		switch {
+		case input == "/exit" || input == "/quit":
+			fmt.Println("Exiting interactive mode...")
+			return
+		case input == "/help":
+			fmt.Println("Special commands:")
+			fmt.Println("  /models     - List available models")
+			fmt.Println("  /model <name> - Switch to a different model")
+			fmt.Println("  /exit, /quit - Exit interactive mode")
+			fmt.Println("  /help       - Show this help")
+			continue
+		case input == "/models":
+			// This would need to query available models from gateway
+			fmt.Println("Available models:")
+			fmt.Println("  - deepseek-chat")
+			fmt.Println("  - qwen3-coder-30b-a3b-instruct")
+			fmt.Println("  - qwen-plus")
+			fmt.Println("  - qwen-max")
+			fmt.Println("  - gpt-4o")
+			fmt.Println("  - gpt-4-turbo")
+			fmt.Println("  - glm-4")
+			fmt.Println("  - glm-3-turbo")
+			fmt.Println("  - abab6.5s")
+			fmt.Println("  - abab6.5")
+			fmt.Println("\nUse '/model <model-name>' to switch models")
+			continue
+		case strings.HasPrefix(input, "/model "):
+			newModel := strings.TrimSpace(strings.TrimPrefix(input, "/model "))
+			modelName = newModel
+			fmt.Printf("Model switched to: %s\n", modelName)
+			continue
+		}
+		
+		// Process task
+		req := ChatRequest{
+			SessionID:  sessionID,
+			UserInput:  input,
+			WorkingDir: workingDir,
+			Provider:   providerName,
+			Model:      modelName,
+			MaxSteps:   maxSteps,
+		}
+		
+		// Send request to gateway
+		resp, err := client.Send(req)
+		if err != nil {
+			fmt.Printf("❌ Error: %v\n", err)
+			continue
+		}
+		
+		// Check for error in response
+		if resp.Error != "" {
+			fmt.Printf("❌ Agent error: %s\n", resp.Error)
+			continue
+		}
+		
+		// Print result
+		fmt.Println("\n" + strings.Repeat("═", 80))
+		fmt.Println("🎯 RESULT")
+		fmt.Println(strings.Repeat("═", 80))
+		fmt.Println(resp.Result)
+		fmt.Println(strings.Repeat("═", 80))
+		
+		// Update session ID for continuation
+		sessionID = resp.SessionID
 	}
 }
