@@ -44,6 +44,38 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]interface{}) (in
 		return nil, fmt.Errorf("command parameter is required")
 	}
 	
+	// Check for cd command and update working directory
+	trimmedCmd := strings.TrimSpace(command)
+	if strings.HasPrefix(trimmedCmd, "cd ") {
+		// Extract directory
+		dir := strings.TrimSpace(strings.TrimPrefix(trimmedCmd, "cd "))
+		// Handle ~ expansion
+		if strings.HasPrefix(dir, "~") {
+			home, err := os.UserHomeDir()
+			if err == nil {
+				dir = home + dir[1:]
+			}
+		}
+		
+		// Update working directory if it exists
+		if _, err := os.Stat(dir); err == nil {
+			t.workingDir = dir
+			return map[string]interface{}{
+				"command":   command,
+				"output":    fmt.Sprintf("Changed directory to: %s", dir),
+				"exit_code": 0,
+				"new_working_dir": dir,
+			}, nil
+		} else {
+			return map[string]interface{}{
+				"command":   command,
+				"output":    fmt.Sprintf("Error: Directory %s does not exist", dir),
+				"exit_code": 1,
+				"error":     err.Error(),
+			}, nil
+		}
+	}
+	
 	// Create command with context
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	if t.workingDir != "" {
