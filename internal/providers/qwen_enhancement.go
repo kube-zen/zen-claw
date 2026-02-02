@@ -62,14 +62,16 @@ func (p *OpenAICompatibleProvider) GetQwenModelInfo(modelName string) map[string
 }
 
 // OptimizeForQwenContext optimizes message handling for Qwen's large context window
+// DEPRECATED: This function is no longer used. Context management is handled in Chat() method.
+// Kept for backwards compatibility but should not be called.
 func (p *OpenAICompatibleProvider) OptimizeForQwenContext(messages []ai.Message, maxTokens int) []ai.Message {
 	if !p.IsQwenProvider() {
 		return messages
 	}
 	
-	// For Qwen, we can be more aggressive with context utilization
-	// This is a placeholder for more sophisticated context management
-	fmt.Printf("🔍 Optimizing for Qwen's large context window (%d tokens)\n", 262144)
+	// This function is deprecated - context management is now handled in Chat() method
+	// based on QwenLargeContextEnabled flag in ChatRequest
+	// Do not log or optimize here to avoid confusion
 	
 	return messages
 }

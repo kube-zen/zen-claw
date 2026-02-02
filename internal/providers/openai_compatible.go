@@ -86,11 +86,12 @@ func (p *OpenAICompatibleProvider) SupportsTools() bool {
 func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
 	messages := req.Messages
 
-	// Apply context limit if specified (0 = no limit)
+	// Apply context limit (0 = unlimited, default 50 from session)
+	// If ContextLimit is 0, it means unlimited was explicitly requested
+	// Otherwise, use the value from the request (which comes from session, default 50)
 	contextLimit := req.ContextLimit
-	if contextLimit == 0 {
-		contextLimit = 50 // Default limit
-	}
+	// Note: 0 means unlimited, non-zero means that many messages
+	// The session defaults to 50, so if ContextLimit is 0 here, it means user set it to unlimited
 
 	// For Qwen: check if large context is enabled
 	// If disabled (default), use small window to avoid crashes with 256k negotiation

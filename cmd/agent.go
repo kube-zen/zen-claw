@@ -231,7 +231,7 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 	fmt.Println("  /models            - List models for current provider")
 	fmt.Println("  /model <name>      - Switch model within current provider")
 	fmt.Println("  /context-limit [n] - Set context limit (default 50, 0=unlimited)")
-	fmt.Println("  /qwen-large-context [on|off] - Enable/disable Qwen 256k context (default off)")
+	fmt.Println("  /qwen-large-context [on|off|disable] - Enable/disable Qwen 256k context (default off)")
 	fmt.Println("  /exit, /quit       - Exit interactive mode")
 	fmt.Println("  /help              - Show this help")
 	fmt.Println("═" + strings.Repeat("═", 78))
@@ -318,7 +318,7 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			fmt.Println("  /models            - List models for current provider")
 			fmt.Println("  /model <name>      - Switch model within current provider")
 			fmt.Println("  /context-limit [n] - Set context limit (default 50, 0=unlimited)")
-			fmt.Println("  /qwen-large-context [on|off] - Enable/disable Qwen 256k context (default off)")
+			fmt.Println("  /qwen-large-context [on|off|disable] - Enable/disable Qwen 256k context (default off)")
 			fmt.Println("  /exit, /quit       - Exit interactive mode")
 			fmt.Println("  /help              - Show this help")
 			continue

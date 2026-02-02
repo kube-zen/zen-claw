@@ -147,7 +147,7 @@ func (a *Agent) Run(ctx context.Context, session *Session, userInput string) (*S
 			case "on", "enable", "true", "1":
 				session.SetQwenLargeContextEnabled(true)
 				return session, "Qwen large context enabled (256k context window). Warning: may cause crashes with some Qwen models.", nil
-			case "off", "disable", "false", "0":
+			case "off", "disable", "disabled", "false", "0":
 				session.SetQwenLargeContextEnabled(false)
 				return session, "Qwen large context disabled (using small window to avoid crashes)", nil
 			case "status":
