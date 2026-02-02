@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -134,6 +135,20 @@ func (a *Agent) Run(ctx context.Context, session *Session, userInput string) (*S
 				Content:    result.Content,
 				ToolCallID: result.ToolCallID,
 			})
+			
+			// Check if this was a cd command that changed working directory
+			// The ExecTool returns new_working_dir in the result for cd commands
+			if result.Content != "" && !result.IsError {
+				// Parse JSON result
+				var toolResult map[string]interface{}
+				if err := json.Unmarshal([]byte(result.Content), &toolResult); err == nil {
+					// Check for new_working_dir field
+					if newDir, ok := toolResult["new_working_dir"].(string); ok && newDir != "" {
+						session.SetWorkingDir(newDir)
+						log.Printf("[Agent] Updated session working directory to: %s", newDir)
+					}
+				}
+			}
 		}
 
 		log.Printf("[Agent] Added %d tool results, continuing...", len(toolResults))
@@ -203,21 +218,35 @@ func (a *Agent) executeToolCalls(ctx context.Context, toolCalls []ai.ToolCall) (
 		// Execute tool
 		result, err := tool.Execute(ctx, call.Args)
 		if err != nil {
+			errorResult := map[string]interface{}{
+				"error": fmt.Sprintf("Error executing %s: %v", call.Name, err),
+			}
+			errorJSON, _ := json.Marshal(errorResult)
 			results = append(results, ToolResult{
 				ToolCallID: call.ID,
-				Content:    fmt.Sprintf("Error executing %s: %v", call.Name, err),
+				Content:    string(errorJSON),
 				IsError:    true,
 			})
 			continue
 		}
 
-		// Convert result to string
-		resultStr := fmt.Sprintf("%v", result)
-		results = append(results, ToolResult{
-			ToolCallID: call.ID,
-			Content:    resultStr,
-			IsError:    false,
-		})
+		// Convert result to JSON string to preserve structure
+		resultJSON, err := json.Marshal(result)
+		if err != nil {
+			// Fallback to string representation
+			resultStr := fmt.Sprintf("%v", result)
+			results = append(results, ToolResult{
+				ToolCallID: call.ID,
+				Content:    resultStr,
+				IsError:    false,
+			})
+		} else {
+			results = append(results, ToolResult{
+				ToolCallID: call.ID,
+				Content:    string(resultJSON),
+				IsError:    false,
+			})
+		}
 		
 		log.Printf("[Agent] Tool %s completed", call.Name)
 	}
