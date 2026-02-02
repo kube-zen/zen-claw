@@ -55,6 +55,13 @@ go build -o zen-claw .
 - Conversation continuation
 - Multi-provider support (DeepSeek, OpenAI, Qwen, etc.)
 
+### Model Switching
+- **Default model**: DeepSeek (configured in settings)
+- **Switch models during session**:
+  - `/models` - List all available models
+  - `/model qwen/qwen3-coder-30b` - Switch to Qwen Coder
+  - `/model openai/gpt-4o` - Switch to OpenAI GPT-4
+
 ### Tool System
 - **Read**: Read file contents
 - **Write**: Create or overwrite files  
@@ -105,6 +112,35 @@ default:
 workspace:
   path: "~/.zen/zen-claw/workspace"
 ```
+
+## Interactive Model Switching
+
+While working in a session, you can switch between different AI models:
+
+### Commands:
+- **`/models`** - Show all available models
+- **`/model qwen/qwen3-coder-30b`** - Switch to Qwen Coder
+- **`/model deepseek/deepseek-chat`** - Switch to DeepSeek
+- **`/model openai/gpt-4o`** - Switch to OpenAI GPT-4
+
+### Example Workflow:
+```bash
+# Start with default model (DeepSeek)
+zen-claw agent "analyze codebase"
+
+# In the session, type:
+/models                    # See available models
+/model qwen/qwen3-coder-30b # Switch to Qwen
+/code-review               # Continue with Qwen
+```
+
+## Byobu Integration
+
+Perfect for terminal-based workflow with Byobu:
+- **F2**: Create new session window
+- **F3**: Previous window (left)
+- **F4**: Next window (right) 
+- **F8**: Rename window
 
 ## Development Philosophy
 

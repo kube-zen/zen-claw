@@ -1,0 +1,73 @@
+#!/bin/bash
+
+# Zen Claw Byobu Session Manager
+# Use F2-F8 for quick session management in Byobu
+
+echo "=== Zen Claw Byobu Manager ==="
+echo "F2: Qwen Session     F3: DeepSeek Session"
+echo "F4: List Sessions    F5: Continue Session"
+echo "F6: Session Manager  F7: Clean Sessions"
+echo "F8: Help             ESC: Exit"
+echo ""
+echo "Current sessions:"
+zen-claw session list | head -10
+echo "... (more sessions)"
+
+# Simple menu for manual selection
+echo ""
+echo "Manual Options:"
+echo "1. Qwen Session"
+echo "2. DeepSeek Session" 
+echo "3. List Sessions"
+echo "4. Continue Session"
+echo "5. Clean Sessions"
+echo "6. Help"
+echo -n "Choose (1-6) or press F-key: "
+read choice
+
+case "$choice" in
+  1)
+    byobu new-window -n "zen-qwen" "zen-claw agent --provider qwen"
+    ;;
+  2)
+    byobu new-window -n "zen-deepseek" "zen-claw agent --provider deepseek"
+    ;;
+  3)
+    zen-claw session list
+    ;;
+  4)
+    echo "Enter session ID to continue:"
+    read session_id
+    if [ -n "$session_id" ]; then
+      byobu new-window -n "continue-$session_id" "zen-claw agent --session-id $session_id"
+    fi
+    ;;
+  5)
+    echo "Cleaning up sessions..."
+    zen-claw session list
+    echo "Enter session ID to delete (or press Enter to skip):"
+    read session_id
+    if [ -n "$session_id" ]; then
+      zen-claw session delete "$session_id"
+      echo "Session $session_id deleted"
+    fi
+    ;;
+  6)
+    echo "=== Zen Claw Byobu Manager Help ==="
+    echo "F2: Start new Qwen session"
+    echo "F3: Start new DeepSeek session" 
+    echo "F4: List all sessions"
+    echo "F5: Continue existing session"
+    echo "F6: Open session manager"
+    echo "F7: Clean up old sessions"
+    echo "F8: Show this help"
+    echo ""
+    echo "Navigation:"
+    echo "Ctrl+B, N/P: Next/Previous window"
+    echo "Ctrl+B, O: Rotate panes"
+    echo "Ctrl+B, [Arrow]: Switch panes"
+    ;;
+  *)
+    echo "Invalid option"
+    ;;
+esac

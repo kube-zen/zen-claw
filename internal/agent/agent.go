@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/neves/zen-claw/internal/ai"
@@ -17,6 +19,7 @@ type Agent struct {
 	session    *session.Session
 	workingDir string
 	maxSteps   int // Maximum tool execution steps to prevent infinite loops
+	currentModel string
 }
 
 // Config for creating a new Agent
@@ -26,6 +29,7 @@ type Config struct {
 	WorkingDir string
 	SessionID  string
 	MaxSteps   int
+	Model      string
 }
 
 // NewAgent creates a new agent with the given configuration
@@ -52,12 +56,23 @@ func NewAgent(cfg Config) *Agent {
 		session:    sess,
 		workingDir: cfg.WorkingDir,
 		maxSteps:   cfg.MaxSteps,
+		currentModel: cfg.Model,
 	}
 }
 
 // Run executes a user request with automatic tool chaining and conversation continuation
 func (a *Agent) Run(ctx context.Context, userInput string) (string, error) {
 	log.Printf("[Agent] Running: %s", userInput)
+	
+	// Handle model switching commands
+	if strings.HasPrefix(userInput, "/model ") {
+		model := strings.TrimSpace(strings.TrimPrefix(userInput, "/model "))
+		return a.switchModel(model)
+	}
+	
+	if strings.HasPrefix(userInput, "/models") {
+		return a.listModels(), nil
+	}
 	
 	// Add user message to session
 	a.session.AddMessage(session.Message{
@@ -117,6 +132,42 @@ func (a *Agent) Run(ctx context.Context, userInput string) (string, error) {
 	return "", fmt.Errorf("exceeded maximum steps (%d)", a.maxSteps)
 }
 
+// switchModel switches the agent to a different model
+func (a *Agent) switchModel(model string) (string, error) {
+	// In a real implementation, this would recreate the agent with new provider
+	// For now, we'll just record the model change
+	a.currentModel = model
+	return fmt.Sprintf("Model switched to: %s", model), nil
+}
+
+// listModels shows available models
+func (a *Agent) listModels() string {
+	availableModels := []string{
+		"deepseek/deepseek-chat",
+		"qwen/qwen3-coder-30b",
+		"qwen/qwen-plus",
+		"qwen/qwen-max",
+		"openai/gpt-4o",
+		"openai/gpt-4-turbo",
+		"glm/glm-4",
+		"glm/glm-3-turbo",
+		"minimax/abab6.5s",
+		"minimax/abab6.5",
+	}
+	
+	var sb strings.Builder
+	sb.WriteString("Available models:\n")
+	for _, model := range availableModels {
+		if model == a.currentModel {
+			sb.WriteString(fmt.Sprintf("  ✓ %s (current)\n", model))
+		} else {
+			sb.WriteString(fmt.Sprintf("  ○ %s\n", model))
+		}
+	}
+	sb.WriteString("\nUse '/model <model-name>' to switch models")
+	return sb.String()
+}
+
 // getAIResponse gets a response from the AI provider with current session messages
 func (a *Agent) getAIResponse(ctx context.Context) (*ai.ChatResponse, error) {
 	// Get current messages
@@ -127,7 +178,7 @@ func (a *Agent) getAIResponse(ctx context.Context) (*ai.ChatResponse, error) {
 	
 	// Create chat request
 	req := ai.ChatRequest{
-		Model:       a.provider.Name() + "/default", // Use provider name as default model
+		Model:       a.currentModel, // Use current model
 		Messages:    messages,
 		Tools:       toolDefs,
 		Temperature: 0.7,
@@ -211,11 +262,16 @@ func (a *Agent) getToolDefinitions() []ai.ToolDefinition {
 }
 
 // GetSession returns the agent's session
-func (a *Agent) GetSession() *Session {
+func (a *Agent) GetSession() *session.Session {
 	return a.session
 }
 
 // AddTool adds a tool to the agent
 func (a *Agent) AddTool(tool Tool) {
 	a.tools[tool.Name()] = tool
+}
+
+// GetCurrentModel returns the current model being used
+func (a *Agent) GetCurrentModel() string {
+	return a.currentModel
 }

@@ -46,11 +46,12 @@ Examples:
   # Start with session ID (save for continuing)
   zen-claw agent --session-id my-task "check codebase"
   
-  # Show progress in console
-  zen-claw agent --progress "list directory"
-  
   # Run with verbose output for debugging
   zen-claw agent --verbose "debug this issue"
+  
+  # Switch models during session:
+  # Type "/models" to see available models
+  # Type "/model qwen/qwen3-coder-30b" to switch to Qwen
   
   # Continue session from another client (future):
   # Use same session ID in Slack/Telegram bot`,

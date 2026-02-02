@@ -1,0 +1,52 @@
+#!/bin/bash
+
+# Zen Claw Session Manager for Byobu
+# Usage: zen-session-manager [command]
+
+COMMAND="$1"
+
+case "$COMMAND" in
+  "qwen")
+    echo "Starting Qwen session..."
+    byobu new-window -n "zen-qwen" "zen-claw agent --provider qwen"
+    ;;
+  "deepseek")
+    echo "Starting DeepSeek session..."
+    byobu new-window -n "zen-deepseek" "zen-claw agent --provider deepseek"
+    ;;
+  "list")
+    echo "=== Active Sessions ==="
+    zen-claw session list
+    ;;
+  "clean")
+    echo "Cleaning up old sessions..."
+    zen-claw session list
+    echo "Enter session ID to delete (or press Enter to skip):"
+    read session_id
+    if [ -n "$session_id" ]; then
+      zen-claw session delete "$session_id"
+      echo "Session $session_id deleted"
+    fi
+    ;;
+  "continue")
+    echo "Continue a session:"
+    zen-claw session list
+    echo "Enter session ID:"
+    read session_id
+    if [ -n "$session_id" ]; then
+      byobu new-window -n "continue-$session_id" "zen-claw agent --session-id $session_id"
+    fi
+    ;;
+  "help"|*)
+    echo "Zen Claw Session Manager"
+    echo "Usage: zen-session-manager [command]"
+    echo ""
+    echo "Commands:"
+    echo "  qwen        - Start new Qwen session"
+    echo "  deepseek    - Start new DeepSeek session"
+    echo "  list        - List all sessions"
+    echo "  clean       - Clean up old sessions"
+    echo "  continue    - Continue existing session"
+    echo "  help        - Show this help"
+    ;;
+esac

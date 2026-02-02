@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/neves/zen-claw/internal/ai"
@@ -21,6 +22,7 @@ type LightAgent struct {
 	aiCaller AICaller
 	tools    map[string]Tool
 	maxSteps int
+	currentModel string
 }
 
 // NewLightAgent creates a new lightweight agent
@@ -35,6 +37,7 @@ func NewLightAgent(aiCaller AICaller, tools []Tool, maxSteps int) *LightAgent {
 		aiCaller: aiCaller,
 		tools:    toolMap,
 		maxSteps: maxSteps,
+		currentModel: "deepseek/deepseek-chat", // Default model
 	}
 }
 
@@ -42,6 +45,40 @@ func NewLightAgent(aiCaller AICaller, tools []Tool, maxSteps int) *LightAgent {
 // Returns updated session and final result
 func (a *LightAgent) Run(ctx context.Context, session *Session, userInput string) (*Session, string, error) {
 	log.Printf("[LightAgent] Running: %s", userInput)
+	
+	// Handle model switching commands
+	if userInput == "/models" {
+		availableModels := []string{
+			"deepseek/deepseek-chat",
+			"qwen/qwen3-coder-30b",
+			"qwen/qwen-plus",
+			"qwen/qwen-max",
+			"openai/gpt-4o",
+			"openai/gpt-4-turbo",
+			"glm/glm-4",
+			"glm/glm-3-turbo",
+			"minimax/abab6.5s",
+			"minimax/abab6.5",
+		}
+		
+		var sb strings.Builder
+		sb.WriteString("Available models:\n")
+		for _, model := range availableModels {
+			if model == a.currentModel {
+				sb.WriteString(fmt.Sprintf("  ✓ %s (current)\n", model))
+			} else {
+				sb.WriteString(fmt.Sprintf("  ○ %s\n", model))
+			}
+		}
+		sb.WriteString("\nUse '/model <model-name>' to switch models")
+		return session, sb.String(), nil
+	}
+	
+	if strings.HasPrefix(userInput, "/model ") {
+		model := strings.TrimSpace(strings.TrimPrefix(userInput, "/model "))
+		a.currentModel = model
+		return session, fmt.Sprintf("Model switched to: %s", model), nil
+	}
 	
 	// Add user message to session
 	session.AddMessage(ai.Message{
@@ -108,7 +145,7 @@ func (a *LightAgent) getAIResponse(ctx context.Context, session *Session) (*ai.C
 	
 	// Create chat request
 	req := ai.ChatRequest{
-		Model:       "deepseek-chat", // TODO: Make configurable via AICaller
+		Model:       a.currentModel, // Use current model
 		Messages:    messages,
 		Tools:       toolDefs,
 		Temperature: 0.7,
