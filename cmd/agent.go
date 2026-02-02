@@ -69,7 +69,7 @@ Examples:
 	cmd.Flags().StringVar(&workingDir, "working-dir", ".", "Working directory for tools")
 	cmd.Flags().StringVar(&sessionID, "session-id", "", "Session ID (for continuing sessions)")
 	cmd.Flags().BoolVar(&showProgress, "progress", false, "Show progress in console (CLI only)")
-	cmd.Flags().IntVar(&maxSteps, "max-steps", 10, "Maximum tool execution steps")
+	cmd.Flags().IntVar(&maxSteps, "max-steps", 20, "Maximum tool execution steps")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Enable verbose output for debugging")
 	
 	return cmd

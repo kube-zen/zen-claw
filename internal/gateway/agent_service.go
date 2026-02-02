@@ -102,7 +102,7 @@ func (s *AgentService) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 	// Set max steps
 	maxSteps := req.MaxSteps
 	if maxSteps == 0 {
-		maxSteps = 10
+		maxSteps = 20
 	}
 	
 	// Create AI caller for gateway
@@ -192,6 +192,32 @@ func (s *AgentService) getOrCreateSession(sessionID string) *agent.Session {
 	
 	// Create new session
 	session = agent.NewSession(sessionID)
+	
+	// Add system message to guide the AI
+	session.AddMessage(ai.Message{
+		Role: "system",
+		Content: `You are a strategic AI assistant that helps with code analysis and development tasks.
+
+STRATEGY:
+1. First, explore the directory structure to understand the project
+2. Then, read key files (README, package.json, go.mod, main files)
+3. Analyze the code and identify patterns
+4. Provide actionable recommendations
+
+WORKFLOW:
+- For code analysis: Start with list_dir to see structure, then read key files
+- For development tasks: Break down complex tasks into steps
+- Be concise but thorough in analysis
+- When you have enough information, provide a clear conclusion
+
+TOOLS:
+- exec: Run shell commands (use for git, build, test commands)
+- read_file: Read file contents
+- list_dir: List directory contents
+- system_info: Get system information
+
+Respond with your analysis and use tools when needed. When the task is complete, indicate this clearly with words like "Conclusion:", "Summary:", or "Analysis complete:".`,
+	})
 	
 	s.sessionsMu.Lock()
 	s.sessions[sessionID] = session

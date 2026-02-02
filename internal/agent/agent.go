@@ -137,6 +137,21 @@ func (a *Agent) Run(ctx context.Context, session *Session, userInput string) (*S
 		}
 
 		log.Printf("[Agent] Added %d tool results, continuing...", len(toolResults))
+		
+		// Check if we should stop early (e.g., task completed)
+		if a.shouldStopEarly(resp.Content, toolResults) {
+			log.Printf("[Agent] Early stop condition met at step %d", step+1)
+			// Get final response
+			finalResp, err := a.getAIResponse(ctx, session)
+			if err != nil {
+				return session, "", fmt.Errorf("final AI response failed: %w", err)
+			}
+			session.AddMessage(ai.Message{
+				Role:    "assistant",
+				Content: finalResp.Content,
+			})
+			return session, finalResp.Content, nil
+		}
 	}
 
 	return session, "", fmt.Errorf("exceeded maximum steps (%d)", a.maxSteps)
@@ -221,4 +236,42 @@ func (a *Agent) getToolDefinitions() []ai.ToolDefinition {
 	}
 	
 	return defs
+}
+
+// shouldStopEarly determines if we should stop execution early
+func (a *Agent) shouldStopEarly(lastAssistantMessage string, toolResults []ToolResult) bool {
+	// Check if assistant message indicates completion
+	lowerMsg := strings.ToLower(lastAssistantMessage)
+	completionIndicators := []string{
+		"completed",
+		"finished",
+		"done",
+		"conclusion",
+		"summary",
+		"final",
+		"result:",
+		"answer:",
+		"recommendation:",
+		"analysis complete",
+		"task complete",
+	}
+	
+	for _, indicator := range completionIndicators {
+		if strings.Contains(lowerMsg, indicator) {
+			return true
+		}
+	}
+	
+	// Check if tool results indicate we have enough information
+	if len(toolResults) > 0 {
+		// If we got file contents or directory listings, we might have enough
+		for _, result := range toolResults {
+			if !result.IsError && len(result.Content) > 100 {
+				// Got substantial non-error result
+				return false // Continue to process
+			}
+		}
+	}
+	
+	return false
 }
