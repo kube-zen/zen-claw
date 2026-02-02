@@ -99,7 +99,7 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req ai.ChatRequest)
 		if len(msgs) <= maxCount {
 			return msgs
 		}
-		
+
 		// Keep system message if present
 		hasSystem := len(msgs) > 0 && msgs[0].Role == "system"
 		startIdx := 0
@@ -107,13 +107,13 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req ai.ChatRequest)
 			startIdx = 1
 			maxCount-- // Reserve one slot for system message
 		}
-		
+
 		// Calculate where to start truncation
 		truncateStart := len(msgs) - maxCount
 		if truncateStart <= startIdx {
 			return msgs // No truncation needed
 		}
-		
+
 		// Find the start of the first complete tool call sequence after truncateStart
 		// A tool call sequence is: assistant (with tool_calls) -> tool -> tool -> ... -> assistant
 		// We need to ensure we don't cut in the middle of a sequence
@@ -136,22 +136,25 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req ai.ChatRequest)
 				break
 			}
 		}
-		
+
 		// Build result
 		result := make([]ai.Message, 0, maxCount+1)
 		if hasSystem {
 			result = append(result, msgs[0])
 		}
 		result = append(result, msgs[actualStart:]...)
-		
+
 		return result
 	}
 
 	// Apply context limit with proper tool call sequence handling
 	if p.name == "qwen" {
 		if !req.QwenLargeContextEnabled {
-			// Large context disabled: use small window (20 messages) to avoid 256k negotiation crashes
-			messages = truncateMessages(messages, 20)
+			// Large context disabled: use very small window (10 messages) to avoid:
+			// 1. 256k negotiation crashes
+			// 2. Slow API responses that timeout
+			// Qwen API is slow, so we need to keep requests small and fast
+			messages = truncateMessages(messages, 10)
 		} else {
 			// Large context enabled: respect context limit but allow larger windows
 			if contextLimit > 0 {
@@ -246,12 +249,18 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req ai.ChatRequest)
 	// Add max tokens if specified
 	if req.MaxTokens > 0 {
 		completionReq.MaxTokens = req.MaxTokens
+	} else if p.name == "qwen" && !req.QwenLargeContextEnabled {
+		// Qwen: reduce max tokens when large context is disabled to speed up responses
+		// Smaller responses = faster API calls = less timeout risk
+		completionReq.MaxTokens = 1000 // Reduced from default 2000
 	}
 
 	// Add stream option for better UX
 	completionReq.Stream = false // For now, disable streaming for simplicity
 
 	// Make API call
+	// Note: For Qwen, the context may be canceled if HTTP client times out (180s)
+	// We use small message windows (10 messages) and reduced max tokens to keep it fast
 	resp, err := p.client.CreateChatCompletion(ctx, completionReq)
 	if err != nil {
 		return nil, fmt.Errorf("%s API error: %w", p.name, err)

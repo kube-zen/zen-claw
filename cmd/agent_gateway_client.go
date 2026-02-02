@@ -19,7 +19,9 @@ func NewGatewayClient(baseURL string) *GatewayClient {
 	return &GatewayClient{
 		baseURL: baseURL,
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			// Increased timeout to handle slow providers like Qwen
+			// Qwen can take 60-120 seconds for complex requests
+			Timeout: 180 * time.Second, // 3 minutes
 		},
 	}
 }
