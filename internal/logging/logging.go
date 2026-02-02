@@ -15,7 +15,7 @@ type Logger interface {
 func NewLogger() Logger {
 	// Initialize with default settings
 	return NewSimpleLogger(Config{
-		Level: "info",
+		Level:  "info",
 		Format: "text",
 	})
 }

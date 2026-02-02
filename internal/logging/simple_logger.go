@@ -25,7 +25,7 @@ func NewSimpleLogger(cfg Config) *SimpleLogger {
 	if cfg.Level == "" {
 		cfg.Level = "info"
 	}
-	
+
 	return &SimpleLogger{
 		infoLog:  log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile),
 		errorLog: log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile),

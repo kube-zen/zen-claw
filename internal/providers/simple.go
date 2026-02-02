@@ -33,9 +33,9 @@ func (p *SimpleProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.Chat
 		}
 		response = strings.TrimSuffix(response, ", ") + ". "
 	}
-	
+
 	response += fmt.Sprintf("You said: %s", req.Messages[len(req.Messages)-1].Content)
-	
+
 	return &ai.ChatResponse{
 		Content:      response,
 		FinishReason: "stop",

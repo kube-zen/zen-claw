@@ -29,7 +29,7 @@ func (p *MockProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatRe
 	// Check if user is asking to read a file
 	lastMessage := req.Messages[len(req.Messages)-1].Content
 	lower := strings.ToLower(lastMessage)
-	
+
 	if p.callTools && strings.Contains(lower, "read") && strings.Contains(lower, "test.txt") {
 		// Simulate a tool call to read
 		return &ai.ChatResponse{
@@ -45,7 +45,7 @@ func (p *MockProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatRe
 			FinishReason: "tool_calls",
 		}, nil
 	}
-	
+
 	if p.callTools && strings.Contains(lower, "write") {
 		// Simulate a tool call to write
 		return &ai.ChatResponse{
@@ -62,7 +62,7 @@ func (p *MockProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatRe
 			FinishReason: "tool_calls",
 		}, nil
 	}
-	
+
 	if p.callTools && strings.Contains(lower, "exec") {
 		// Simulate a tool call to exec
 		return &ai.ChatResponse{
@@ -78,13 +78,13 @@ func (p *MockProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatRe
 			FinishReason: "tool_calls",
 		}, nil
 	}
-	
+
 	// Default response
 	response := fmt.Sprintf("Mock response to: %s", lastMessage)
 	if len(req.Tools) > 0 {
 		response += fmt.Sprintf("\nI see %d tools available.", len(req.Tools))
 	}
-	
+
 	return &ai.ChatResponse{
 		Content:      response,
 		FinishReason: "stop",

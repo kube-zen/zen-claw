@@ -8,13 +8,13 @@ import (
 type Tool interface {
 	// Name returns the tool name (used by AI to call it)
 	Name() string
-	
+
 	// Description returns a human-readable description for the AI
 	Description() string
-	
+
 	// Parameters returns the JSON schema for the tool parameters
 	Parameters() map[string]interface{}
-	
+
 	// Execute runs the tool with the given arguments
 	Execute(ctx context.Context, args map[string]interface{}) (interface{}, error)
 }

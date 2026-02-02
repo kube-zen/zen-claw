@@ -18,7 +18,7 @@ func ToAIMessage(sm session.Message) ai.Message {
 			Args: tc.Args,
 		})
 	}
-	
+
 	return ai.Message{
 		Role:       sm.Role,
 		Content:    sm.Content,
@@ -38,7 +38,7 @@ func ToSessionMessage(am ai.Message) session.Message {
 			Args: tc.Args,
 		})
 	}
-	
+
 	return session.Message{
 		Role:       am.Role,
 		Content:    am.Content,

@@ -292,12 +292,12 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 	// Setup readline for improved interactive mode (history, editing, etc.)
 	historyFile := filepath.Join(os.Getenv("HOME"), ".zen-claw-history")
 	rl, err := readline.NewEx(&readline.Config{
-		Prompt:          "\n> ",
-		HistoryFile:     historyFile,
-		HistoryLimit:    1000,
-		AutoComplete:    nil, // Can add custom completer later
-		InterruptPrompt: "^C",
-		EOFPrompt:       "exit",
+		Prompt:            " > ",
+		HistoryFile:       historyFile,
+		HistoryLimit:      1000,
+		AutoComplete:      nil, // Can add custom completer later
+		InterruptPrompt:   "^C",
+		EOFPrompt:         "exit",
 		HistorySearchFold: true,
 	})
 	if err != nil {

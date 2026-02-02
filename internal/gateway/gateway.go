@@ -217,11 +217,11 @@ func (g *Gateway) chatHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Return response
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	// Escape JSON string
 	escapedResponse, _ := json.Marshal(resp.Content)
-	
-	fmt.Fprintf(w, `{"response":%s,"provider":"%s","model":"%s"}`, 
+
+	fmt.Fprintf(w, `{"response":%s,"provider":"%s","model":"%s"}`,
 		escapedResponse, provider, model)
 }
 

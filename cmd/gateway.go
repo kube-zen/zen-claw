@@ -48,7 +48,7 @@ func newGatewayCmd() *cobra.Command {
 func runGatewayStart(cmd *cobra.Command, args []string) error {
 	// Get config path from flag
 	configPath, _ := cmd.Flags().GetString("config")
-	
+
 	// Load config
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
@@ -63,14 +63,14 @@ func runGatewayStart(cmd *cobra.Command, args []string) error {
 	if err := server.Start(); err != nil {
 		return fmt.Errorf("failed to start gateway: %w", err)
 	}
-	
+
 	return nil
 }
 
 func runGatewayStop(cmd *cobra.Command, args []string) error {
 	// Get config path from flag
 	configPath, _ := cmd.Flags().GetString("config")
-	
+
 	// Load config
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
@@ -92,7 +92,7 @@ func runGatewayStop(cmd *cobra.Command, args []string) error {
 func runGatewayRestart(cmd *cobra.Command, args []string) error {
 	// Get config path from flag
 	configPath, _ := cmd.Flags().GetString("config")
-	
+
 	// Load config
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
@@ -113,7 +113,7 @@ func runGatewayRestart(cmd *cobra.Command, args []string) error {
 func runGatewayStatus(cmd *cobra.Command, args []string) error {
 	// Get config path from flag
 	configPath, _ := cmd.Flags().GetString("config")
-	
+
 	// Load config
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {

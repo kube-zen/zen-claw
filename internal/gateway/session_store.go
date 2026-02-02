@@ -73,11 +73,11 @@ func (s *SessionStore) DeleteSession(sessionID string) bool {
 
 	if _, exists := s.sessions[sessionID]; exists {
 		delete(s.sessions, sessionID)
-		
+
 		// Delete from disk
 		filePath := filepath.Join(s.config.DataDir, sessionID+".json")
 		os.Remove(filePath)
-		
+
 		return true
 	}
 	return false
@@ -98,13 +98,13 @@ func (s *SessionStore) ListSessions() []agent.SessionStats {
 // persistSession saves a single session to disk
 func (s *SessionStore) persistSession(session *agent.Session) error {
 	filePath := filepath.Join(s.config.DataDir, session.ID+".json")
-	
+
 	// Create session data for persistence
 	sessionData := PersistedSession{
-		ID:        session.ID,
-		CreatedAt: session.GetStats().CreatedAt,
-		UpdatedAt: time.Now(),
-		Messages:  session.GetMessages(),
+		ID:         session.ID,
+		CreatedAt:  session.GetStats().CreatedAt,
+		UpdatedAt:  time.Now(),
+		Messages:   session.GetMessages(),
 		WorkingDir: session.GetStats().WorkingDir,
 	}
 

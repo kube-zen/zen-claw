@@ -61,7 +61,7 @@ func runConfigInit(cmd *cobra.Command, args []string) error {
 
 	// Create default config
 	cfg := config.NewDefaultConfig()
-	
+
 	// Save config
 	if err := config.SaveConfig(cfg, configPath); err != nil {
 		return fmt.Errorf("save config: %w", err)
@@ -72,7 +72,7 @@ func runConfigInit(cmd *cobra.Command, args []string) error {
 	fmt.Println("1. Edit the config file with your API keys")
 	fmt.Println("2. Run 'zen-claw config check' to verify")
 	fmt.Println("3. Run 'zen-claw agent' to start using Zen Claw")
-	
+
 	return nil
 }
 

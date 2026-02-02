@@ -21,10 +21,10 @@ type AIRouter struct {
 // NewAIRouter creates a new AI router
 func NewAIRouter(cfg *config.Config) *AIRouter {
 	factory := providers.NewFactory(cfg)
-	
+
 	// Load available providers
 	providersMap := make(map[string]ai.Provider)
-	
+
 	// Try to load each configured provider
 	providerConfigs := map[string]*config.ProviderConfig{
 		"deepseek": cfg.Providers.DeepSeek,
@@ -33,28 +33,28 @@ func NewAIRouter(cfg *config.Config) *AIRouter {
 		"openai":   cfg.Providers.OpenAI,
 		"qwen":     cfg.Providers.Qwen,
 	}
-	
+
 	for name, _ := range providerConfigs {
 		// Skip if no API key available (check config and env vars)
 		apiKey := cfg.GetAPIKey(name)
 		if apiKey == "" {
 			continue
 		}
-		
+
 		provider, err := factory.CreateProvider(name)
 		if err != nil {
 			log.Printf("Warning: Failed to load provider %s: %v", name, err)
 			continue
 		}
-		
+
 		providersMap[name] = provider
 		log.Printf("Loaded AI provider: %s", name)
 	}
-	
+
 	if len(providersMap) == 0 {
 		log.Printf("Warning: No AI providers loaded!")
 	}
-	
+
 	return &AIRouter{
 		config:    cfg,
 		factory:   factory,
@@ -66,27 +66,27 @@ func NewAIRouter(cfg *config.Config) *AIRouter {
 func (r *AIRouter) Chat(ctx context.Context, req ai.ChatRequest, preferredProvider string) (*ai.ChatResponse, error) {
 	// Determine provider chain (cost-optimized)
 	providerChain := r.getProviderChain(preferredProvider)
-	
+
 	var lastErr error
-	
+
 	for _, providerName := range providerChain {
 		provider, exists := r.providers[providerName]
 		if !exists {
 			continue
 		}
-		
+
 		log.Printf("[AIRouter] Trying provider: %s", providerName)
-		
+
 		// Try this provider
 		resp, err := provider.Chat(ctx, req)
 		if err == nil {
 			log.Printf("[AIRouter] Provider %s succeeded", providerName)
 			return resp, nil
 		}
-		
+
 		log.Printf("[AIRouter] Provider %s failed: %v", providerName, err)
 		lastErr = err
-		
+
 		// Check if context was cancelled
 		select {
 		case <-ctx.Done():
@@ -95,7 +95,7 @@ func (r *AIRouter) Chat(ctx context.Context, req ai.ChatRequest, preferredProvid
 			// Continue to next provider
 		}
 	}
-	
+
 	return nil, fmt.Errorf("all providers failed. Last error: %w", lastErr)
 }
 
@@ -109,10 +109,10 @@ func (r *AIRouter) getProviderChain(preferred string) []string {
 		}
 		// If requested provider doesn't exist, fall through to default
 	}
-	
+
 	// No specific provider requested, use cost-optimized chain
 	chain := []string{}
-	
+
 	// Start with default provider if available
 	defaultProvider := r.config.Default.Provider
 	if defaultProvider != "" {
@@ -120,10 +120,10 @@ func (r *AIRouter) getProviderChain(preferred string) []string {
 			chain = append(chain, defaultProvider)
 		}
 	}
-	
+
 	// Cost-optimized fallback chain (cheapest first)
 	costOptimized := []string{"deepseek", "glm", "minimax", "qwen", "openai"}
-	
+
 	for _, provider := range costOptimized {
 		// Skip if already in chain or not available
 		if contains(chain, provider) {
@@ -133,7 +133,7 @@ func (r *AIRouter) getProviderChain(preferred string) []string {
 			chain = append(chain, provider)
 		}
 	}
-	
+
 	return chain
 }
 
@@ -155,7 +155,7 @@ func (r *AIRouter) GetProvider(name string) (ai.Provider, bool) {
 // TestProviders tests all loaded providers
 func (r *AIRouter) TestProviders(ctx context.Context) map[string]error {
 	results := make(map[string]error)
-	
+
 	for name, provider := range r.providers {
 		// Simple test request
 		testReq := ai.ChatRequest{
@@ -165,14 +165,14 @@ func (r *AIRouter) TestProviders(ctx context.Context) map[string]error {
 			},
 			MaxTokens: 5,
 		}
-		
+
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		_, err := provider.Chat(ctx, testReq)
 		cancel()
-		
+
 		results[name] = err
 	}
-	
+
 	return results
 }
 

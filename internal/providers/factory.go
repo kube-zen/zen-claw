@@ -46,7 +46,7 @@ func (f *Factory) CreateProvider(name string) (ai.Provider, error) {
 				return nil, fmt.Errorf("%s API key not found. Set in config or %s env", name, envVar)
 			}
 		}
-		
+
 		// Get provider-specific config
 		var providerConfig *config.ProviderConfig
 		switch name {
@@ -61,13 +61,13 @@ func (f *Factory) CreateProvider(name string) (ai.Provider, error) {
 		case "qwen":
 			providerConfig = f.config.Providers.Qwen
 		}
-		
+
 		// Build config for the provider
 		config := ProviderConfig{
 			APIKey: apiKey,
 			Model:  model,
 		}
-		
+
 		if providerConfig != nil {
 			if providerConfig.BaseURL != "" {
 				config.BaseURL = providerConfig.BaseURL
@@ -77,12 +77,12 @@ func (f *Factory) CreateProvider(name string) (ai.Provider, error) {
 				config.Model = providerConfig.Model
 			}
 		}
-		
+
 		// Validate that we have a valid API key
 		if apiKey == "" {
 			return nil, fmt.Errorf("invalid API key for provider %s", name)
 		}
-		
+
 		return NewOpenAICompatibleProvider(name, config)
 
 	case "mock":
@@ -106,7 +106,7 @@ func (f *Factory) CreateDefaultProvider() (ai.Provider, error) {
 // ListAvailableProviders returns a list of available providers
 func (f *Factory) ListAvailableProviders() []string {
 	providers := []string{"mock", "simple"}
-	
+
 	// Check which configured providers have API keys
 	if f.config.GetAPIKey("openai") != "" || os.Getenv("OPENAI_API_KEY") != "" {
 		providers = append(providers, "openai")
@@ -123,7 +123,7 @@ func (f *Factory) ListAvailableProviders() []string {
 	if f.config.GetAPIKey("qwen") != "" || os.Getenv("QWEN_API_KEY") != "" {
 		providers = append(providers, "qwen")
 	}
-	
+
 	return providers
 }
 
@@ -131,7 +131,7 @@ func (f *Factory) ListAvailableProviders() []string {
 func (f *Factory) ValidateProviderConfig(name string) error {
 	// Check if provider exists in our supported list
 	supportedProviders := []string{"openai", "deepseek", "glm", "minimax", "qwen"}
-	
+
 	valid := false
 	for _, provider := range supportedProviders {
 		if provider == name {
@@ -139,11 +139,11 @@ func (f *Factory) ValidateProviderConfig(name string) error {
 			break
 		}
 	}
-	
+
 	if !valid {
 		return fmt.Errorf("unsupported provider: %s", name)
 	}
-	
+
 	// Check if API key is present
 	apiKey := f.config.GetAPIKey(name)
 	if apiKey == "" {
@@ -151,10 +151,10 @@ func (f *Factory) ValidateProviderConfig(name string) error {
 		envVar := fmt.Sprintf("%s_API_KEY", strings.ToUpper(name))
 		apiKey = os.Getenv(envVar)
 	}
-	
+
 	if apiKey == "" {
 		return fmt.Errorf("missing API key for provider %s", name)
 	}
-	
+
 	return nil
 }

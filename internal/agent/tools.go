@@ -27,7 +27,7 @@ func NewExecTool(workingDir string) *ExecTool {
 		},
 		"required": []string{"command"},
 	}
-	
+
 	return &ExecTool{
 		BaseTool: NewBaseTool(
 			"exec",
@@ -43,7 +43,7 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]interface{}) (in
 	if !ok {
 		return nil, fmt.Errorf("command parameter is required")
 	}
-	
+
 	// Check for cd command and update working directory
 	trimmedCmd := strings.TrimSpace(command)
 	if strings.HasPrefix(trimmedCmd, "cd ") {
@@ -56,14 +56,14 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]interface{}) (in
 				dir = home + dir[1:]
 			}
 		}
-		
+
 		// Update working directory if it exists
 		if _, err := os.Stat(dir); err == nil {
 			t.workingDir = dir
 			return map[string]interface{}{
-				"command":   command,
-				"output":    fmt.Sprintf("Changed directory to: %s", dir),
-				"exit_code": 0,
+				"command":         command,
+				"output":          fmt.Sprintf("Changed directory to: %s", dir),
+				"exit_code":       0,
 				"new_working_dir": dir,
 			}, nil
 		} else {
@@ -75,13 +75,13 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]interface{}) (in
 			}, nil
 		}
 	}
-	
+
 	// Create command with context
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	if t.workingDir != "" {
 		cmd.Dir = t.workingDir
 	}
-	
+
 	// Execute with timeout
 	output, err := cmd.CombinedOutput()
 	result := map[string]interface{}{
@@ -89,11 +89,11 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]interface{}) (in
 		"output":    string(output),
 		"exit_code": cmd.ProcessState.ExitCode(),
 	}
-	
+
 	if err != nil {
 		result["error"] = err.Error()
 	}
-	
+
 	return result, nil
 }
 
@@ -115,7 +115,7 @@ func NewReadFileTool(workingDir string) *ReadFileTool {
 		},
 		"required": []string{"path"},
 	}
-	
+
 	return &ReadFileTool{
 		BaseTool: NewBaseTool(
 			"read_file",
@@ -131,13 +131,13 @@ func (t *ReadFileTool) Execute(ctx context.Context, args map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("path parameter is required")
 	}
-	
+
 	// Resolve path relative to working directory
 	fullPath := path
 	if t.workingDir != "" && !strings.HasPrefix(path, "/") {
 		fullPath = t.workingDir + "/" + path
 	}
-	
+
 	// Read file
 	content, err := os.ReadFile(fullPath)
 	if err != nil {
@@ -146,7 +146,7 @@ func (t *ReadFileTool) Execute(ctx context.Context, args map[string]interface{})
 			"error": err.Error(),
 		}, nil // Return error as result, not as Go error
 	}
-	
+
 	return map[string]interface{}{
 		"path":    path,
 		"content": string(content),
@@ -171,7 +171,7 @@ func NewListDirTool(workingDir string) *ListDirTool {
 			},
 		},
 	}
-	
+
 	return &ListDirTool{
 		BaseTool: NewBaseTool(
 			"list_dir",
@@ -187,13 +187,13 @@ func (t *ListDirTool) Execute(ctx context.Context, args map[string]interface{}) 
 	if p, ok := args["path"].(string); ok && p != "" {
 		path = p
 	}
-	
+
 	// Resolve path relative to working directory
 	fullPath := path
 	if t.workingDir != "" && !strings.HasPrefix(path, "/") {
 		fullPath = t.workingDir + "/" + path
 	}
-	
+
 	// List directory
 	entries, err := os.ReadDir(fullPath)
 	if err != nil {
@@ -202,19 +202,19 @@ func (t *ListDirTool) Execute(ctx context.Context, args map[string]interface{}) 
 			"error": err.Error(),
 		}, nil
 	}
-	
+
 	// Format entries
 	var files []map[string]interface{}
 	for _, entry := range entries {
 		info, _ := entry.Info()
 		files = append(files, map[string]interface{}{
-			"name":  entry.Name(),
-			"type":  getFileType(entry),
-			"size":  info.Size(),
-			"mode":  info.Mode().String(),
+			"name": entry.Name(),
+			"type": getFileType(entry),
+			"size": info.Size(),
+			"mode": info.Mode().String(),
 		})
 	}
-	
+
 	return map[string]interface{}{
 		"path":  path,
 		"files": files,
@@ -233,7 +233,7 @@ func NewSystemInfoTool() *SystemInfoTool {
 		"type":       "object",
 		"properties": map[string]interface{}{},
 	}
-	
+
 	return &SystemInfoTool{
 		BaseTool: NewBaseTool(
 			"system_info",
@@ -246,13 +246,13 @@ func NewSystemInfoTool() *SystemInfoTool {
 func (t *SystemInfoTool) Execute(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	hostname, _ := os.Hostname()
 	wd, _ := os.Getwd()
-	
+
 	return map[string]interface{}{
-		"hostname":         hostname,
+		"hostname":          hostname,
 		"current_directory": wd,
-		"time":             time.Now().Format(time.RFC3339),
-		"pid":              os.Getpid(),
-		"env_vars":         os.Environ(),
+		"time":              time.Now().Format(time.RFC3339),
+		"pid":               os.Getpid(),
+		"env_vars":          os.Environ(),
 	}, nil
 }
 
@@ -261,16 +261,16 @@ func getFileType(entry os.DirEntry) string {
 	if entry.IsDir() {
 		return "directory"
 	}
-	
+
 	info, err := entry.Info()
 	if err != nil {
 		return "file"
 	}
-	
+
 	mode := info.Mode()
 	if mode&os.ModeSymlink != 0 {
 		return "symlink"
 	}
-	
+
 	return "file"
 }

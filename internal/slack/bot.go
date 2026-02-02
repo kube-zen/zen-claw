@@ -45,13 +45,13 @@ func NewBot(cfg Config) *Bot {
 
 // SlackEvent represents a Slack event from Events API
 type SlackEvent struct {
-	Type      string `json:"type"`
-	Event     struct {
-		Type    string `json:"type"`
-		Channel string `json:"channel"`
-		User    string `json:"user"`
-		Text    string `json:"text"`
-		TS      string `json:"ts"`
+	Type  string `json:"type"`
+	Event struct {
+		Type     string `json:"type"`
+		Channel  string `json:"channel"`
+		User     string `json:"user"`
+		Text     string `json:"text"`
+		TS       string `json:"ts"`
 		ThreadTS string `json:"thread_ts,omitempty"`
 	} `json:"event"`
 	Challenge string `json:"challenge"`
@@ -76,7 +76,7 @@ func (b *Bot) HandleEvent(ctx context.Context, event SlackEvent) error {
 			event.Event.User, event.Event.Channel, event.Event.Text, event.Event.ThreadTS)
 
 		// Process message with Zen Claw gateway
-		return b.processMessage(ctx, event.Event.Channel, event.Event.User, 
+		return b.processMessage(ctx, event.Event.Channel, event.Event.User,
 			event.Event.Text, event.Event.ThreadTS)
 	}
 
@@ -94,13 +94,13 @@ func (b *Bot) processMessage(ctx context.Context, channelID, userID, text, threa
 	b.sessionsMu.RLock()
 	sessionID, hasSession := b.sessions[sessionKey]
 	b.sessionsMu.RUnlock()
-	
+
 	// Prepare request to Zen Claw gateway
 	gatewayReq := map[string]interface{}{
 		"messages": []map[string]string{
 			{
 				"role": "user",
-				"content": fmt.Sprintf("Slack user %s in channel %s says: %s", 
+				"content": fmt.Sprintf("Slack user %s in channel %s says: %s",
 					userID, channelID, text),
 			},
 		},
@@ -203,7 +203,7 @@ func GetSlackTokenFromEnv() string {
 	if token := os.Getenv("SLACK_BOT_TOKEN"); token != "" {
 		return token
 	}
-	
+
 	// Could add zen-lock or other fallbacks here
 	// Following the pattern from SlackNotificationService
 	return ""

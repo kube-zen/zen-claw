@@ -17,19 +17,19 @@ import (
 
 // Server represents the Zen Claw gateway server
 type Server struct {
-	config      *config.Config
-	server      *http.Server
-	mu          sync.RWMutex
-	running     bool
-	pidFile     string
+	config       *config.Config
+	server       *http.Server
+	mu           sync.RWMutex
+	running      bool
+	pidFile      string
 	agentService *AgentService
 }
 
 // NewServer creates a new gateway server
 func NewServer(cfg *config.Config) *Server {
 	srv := &Server{
-		config:      cfg,
-		pidFile:     "/tmp/zen-claw-gateway.pid",
+		config:       cfg,
+		pidFile:      "/tmp/zen-claw-gateway.pid",
 		agentService: NewAgentService(cfg),
 	}
 
@@ -75,7 +75,7 @@ func (s *Server) Start() error {
 	// Wait for shutdown signal or server error
 	shutdownChan := make(chan os.Signal, 1)
 	signal.Notify(shutdownChan, syscall.SIGINT, syscall.SIGTERM)
-	
+
 	select {
 	case sig := <-shutdownChan:
 		log.Printf("Shutdown signal received: %v", sig)
@@ -200,19 +200,19 @@ func (s *Server) sessionsHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Get sessions from agent service
 	sessions := s.agentService.ListSessions()
-	
+
 	// Convert to response format
 	sessionList := make([]map[string]interface{}, 0, len(sessions))
 	for _, stats := range sessions {
 		sessionList = append(sessionList, map[string]interface{}{
-			"id":            stats.SessionID,
-			"created_at":    stats.CreatedAt.Format(time.RFC3339),
-			"updated_at":    stats.UpdatedAt.Format(time.RFC3339),
-			"message_count": stats.MessageCount,
-			"user_messages": stats.UserMessages,
+			"id":                 stats.SessionID,
+			"created_at":         stats.CreatedAt.Format(time.RFC3339),
+			"updated_at":         stats.UpdatedAt.Format(time.RFC3339),
+			"message_count":      stats.MessageCount,
+			"user_messages":      stats.UserMessages,
 			"assistant_messages": stats.AssistantMessages,
-			"tool_messages": stats.ToolMessages,
-			"working_dir":   stats.WorkingDir,
+			"tool_messages":      stats.ToolMessages,
+			"working_dir":        stats.WorkingDir,
 		})
 	}
 
@@ -243,21 +243,21 @@ func (s *Server) sessionHandler(w http.ResponseWriter, r *http.Request) {
 		stats := session.GetStats()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"id":            stats.SessionID,
-			"created_at":    stats.CreatedAt.Format(time.RFC3339),
-			"updated_at":    stats.UpdatedAt.Format(time.RFC3339),
-			"message_count": stats.MessageCount,
-			"user_messages": stats.UserMessages,
+			"id":                 stats.SessionID,
+			"created_at":         stats.CreatedAt.Format(time.RFC3339),
+			"updated_at":         stats.UpdatedAt.Format(time.RFC3339),
+			"message_count":      stats.MessageCount,
+			"user_messages":      stats.UserMessages,
 			"assistant_messages": stats.AssistantMessages,
-			"tool_messages": stats.ToolMessages,
-			"working_dir":   stats.WorkingDir,
-			"messages":      session.GetMessages(),
+			"tool_messages":      stats.ToolMessages,
+			"working_dir":        stats.WorkingDir,
+			"messages":           session.GetMessages(),
 		})
 
 	case http.MethodDelete:
 		// Delete session via agent service
 		deleted := s.agentService.DeleteSession(sessionID)
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"deleted": deleted,

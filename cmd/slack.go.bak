@@ -102,7 +102,16 @@ func runSlackBot(cmd *cobra.Command, args []string) error {
 	// Root endpoint
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprintf(w, "Zen Claw Slack Bot\n\nEndpoints:\n  POST /slack/events  - Slack Events API\n  GET  /health        - Health check\n\nConfiguration:\n  Gateway URL: %s\n  Server port: %s\n", gatewayURL, port)
+		fmt.Fprintf(w, `Zen Claw Slack Bot
+		
+Endpoints:
+  POST /slack/events  - Slack Events API
+  GET  /health        - Health check
+
+Configuration:
+  Gateway URL: %s
+  Server port: %s
+`, gatewayURL, port)
 	})
 
 	log.Printf("Starting Zen Claw Slack bot server on :%s", port)

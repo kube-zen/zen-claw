@@ -24,7 +24,7 @@ func NewGatewayProvider(baseURL string) *GatewayProvider {
 	if baseURL == "" {
 		baseURL = "http://localhost:8080"
 	}
-	
+
 	return &GatewayProvider{
 		baseURL: strings.TrimSuffix(baseURL, "/"),
 		timeout: 30 * time.Second,
@@ -44,7 +44,7 @@ func (p *GatewayProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.Cha
 	// Determine provider from model or use default
 	provider := "deepseek" // default
 	model := req.Model
-	
+
 	// Try to extract provider from model string
 	if strings.Contains(model, "/") {
 		parts := strings.SplitN(model, "/", 2)
@@ -53,7 +53,7 @@ func (p *GatewayProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.Cha
 			model = parts[1]
 		}
 	}
-	
+
 	// Get the last user message (simplified for now)
 	var lastUserMessage string
 	for i := len(req.Messages) - 1; i >= 0; i-- {
@@ -62,68 +62,68 @@ func (p *GatewayProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.Cha
 			break
 		}
 	}
-	
+
 	if lastUserMessage == "" && len(req.Messages) > 0 {
 		lastUserMessage = req.Messages[len(req.Messages)-1].Content
 	}
-	
+
 	// Prepare JSON request body
 	reqBody := map[string]interface{}{
-		"message": lastUserMessage,
+		"message":  lastUserMessage,
 		"provider": provider,
 	}
 	if model != "" && model != "default" {
 		reqBody["model"] = model
 	}
-	
+
 	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("marshal JSON: %w", err)
 	}
-	
+
 	// Create HTTP request
 	client := &http.Client{Timeout: p.timeout}
 	gatewayURL := fmt.Sprintf("%s/chat", p.baseURL)
-	
+
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", gatewayURL, bytes.NewReader(jsonBody))
 	if err != nil {
 		return nil, fmt.Errorf("create HTTP request: %w", err)
 	}
-	
+
 	httpReq.Header.Set("Content-Type", "application/json")
-	
+
 	// Send request
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	// Read response
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read response body: %w", err)
 	}
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("gateway returned status %d: %s", resp.StatusCode, string(body))
 	}
-	
+
 	// Parse JSON response
 	var gatewayResp struct {
 		Response string `json:"response"`
 		Provider string `json:"provider"`
 		Model    string `json:"model"`
 	}
-	
+
 	if err := json.Unmarshal(body, &gatewayResp); err != nil {
 		return nil, fmt.Errorf("parse JSON response: %w", err)
 	}
-	
+
 	// Check for tool calls in the response
 	// For now, we'll just return the text response
 	// In a real implementation, we'd parse tool calls from the response
-	
+
 	return &ai.ChatResponse{
 		Content:      gatewayResp.Response,
 		FinishReason: "stop",
@@ -146,18 +146,18 @@ func (p *GatewayProviderWithTools) Chat(ctx context.Context, req ai.ChatRequest)
 	// For tool-enabled requests, we need to send the full conversation
 	// This is a simplified version - in production, we'd need to handle
 	// the full tool calling protocol through the gateway
-	
+
 	if len(req.Tools) == 0 {
 		// No tools, use simple chat
 		return p.GatewayProvider.Chat(ctx, req)
 	}
-	
+
 	// For now, we'll use a simplified approach
 	// In a real implementation, we'd need to:
 	// 1. Send the full conversation with tools to the gateway
 	// 2. Parse tool calls from the response
 	// 3. Handle tool execution and follow-up
-	
+
 	// For simplicity, we'll just use the basic chat for now
 	return p.GatewayProvider.Chat(ctx, req)
 }

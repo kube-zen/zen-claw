@@ -27,7 +27,7 @@ func (t *EnvTool) Execute(args map[string]interface{}) (interface{}, error) {
 			envVars = append(envVars, env)
 		}
 		return strings.Join(envVars, "\n"), nil
-		
+
 	case "get":
 		key, ok := args["key"].(string)
 		if !ok {
@@ -35,7 +35,7 @@ func (t *EnvTool) Execute(args map[string]interface{}) (interface{}, error) {
 		}
 		value := os.Getenv(key)
 		return fmt.Sprintf("%s=%s", key, value), nil
-		
+
 	case "set":
 		key, ok := args["key"].(string)
 		if !ok {
@@ -50,7 +50,7 @@ func (t *EnvTool) Execute(args map[string]interface{}) (interface{}, error) {
 			return nil, fmt.Errorf("failed to set environment variable: %w", err)
 		}
 		return fmt.Sprintf("Set %s=%s", key, value), nil
-		
+
 	default:
 		return nil, fmt.Errorf("unsupported env operation: %s", operation)
 	}

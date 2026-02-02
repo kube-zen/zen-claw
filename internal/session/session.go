@@ -11,21 +11,21 @@ import (
 )
 
 type Session struct {
-	ID          string    `json:"id"`
-	CreatedAt   time.Time `json:"created_at"`
-	LastUpdated time.Time `json:"last_updated"`
-	WorkingDir  string    `json:"working_dir"`
-	Messages    []Message `json:"messages"`
+	ID          string       `json:"id"`
+	CreatedAt   time.Time    `json:"created_at"`
+	LastUpdated time.Time    `json:"last_updated"`
+	WorkingDir  string       `json:"working_dir"`
+	Messages    []Message    `json:"messages"`
 	Stats       SessionStats `json:"stats"`
-	Tags        []string  `json:"tags,omitempty"`
+	Tags        []string     `json:"tags,omitempty"`
 }
 
 type Message struct {
-	Role       string    `json:"role"`
-	Content    string    `json:"content"`
-	Time       time.Time `json:"time"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	Time       time.Time  `json:"time"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string    `json:"tool_call_id,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
 }
 
 // ToolCall represents a tool invocation request from the AI
@@ -36,19 +36,19 @@ type ToolCall struct {
 }
 
 type SessionStats struct {
-	SessionID          string `json:"session_id"`
-	MessageCount       int    `json:"message_count"`
-	UserMessages       int    `json:"user_messages"`
-	AssistantMessages  int    `json:"assistant_messages"`
-	ToolMessages       int    `json:"tool_messages"`
-	WorkingDir         string `json:"working_dir"`
+	SessionID         string `json:"session_id"`
+	MessageCount      int    `json:"message_count"`
+	UserMessages      int    `json:"user_messages"`
+	AssistantMessages int    `json:"assistant_messages"`
+	ToolMessages      int    `json:"tool_messages"`
+	WorkingDir        string `json:"working_dir"`
 }
 
 func NewSession(id string) *Session {
 	if id == "" {
 		id = generateID()
 	}
-	
+
 	return &Session{
 		ID:          id,
 		CreatedAt:   time.Now(),
@@ -63,7 +63,7 @@ func NewSession(id string) *Session {
 func (s *Session) AddMessage(msg Message) {
 	s.Messages = append(s.Messages, msg)
 	s.LastUpdated = time.Now()
-	
+
 	// Update stats
 	switch msg.Role {
 	case "user":
@@ -92,7 +92,7 @@ func (s *Session) GetStats() SessionStats {
 func (s *Session) Save(filePath string) error {
 	// Update last updated timestamp
 	s.LastUpdated = time.Now()
-	
+
 	// Marshal session to JSON
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
@@ -124,14 +124,14 @@ func ListSessions(workspace string) ([]map[string]interface{}, error) {
 		if entry.IsDir() {
 			continue
 		}
-		
+
 		if filepath.Ext(entry.Name()) != ".json" {
 			continue
 		}
 
 		sessionID := strings.TrimSuffix(entry.Name(), ".json")
 		sessionFile := filepath.Join(sessionsDir, entry.Name())
-		
+
 		var session Session
 		if data, err := os.ReadFile(sessionFile); err == nil {
 			if err := json.Unmarshal(data, &session); err == nil {
@@ -162,19 +162,19 @@ func ListSessions(workspace string) ([]map[string]interface{}, error) {
 // LoadSession loads a session by ID
 func LoadSession(workspace, sessionID string) (*Session, error) {
 	sessionFile := filepath.Join(workspace, "sessions", sessionID+".json")
-	
+
 	// Read session file
 	data, err := os.ReadFile(sessionFile)
 	if err != nil {
 		return nil, fmt.Errorf("read session file: %w", err)
 	}
-	
+
 	// Parse session
 	var session Session
 	if err := json.Unmarshal(data, &session); err != nil {
 		return nil, fmt.Errorf("unmarshal session: %w", err)
 	}
-	
+
 	return &session, nil
 }
 
