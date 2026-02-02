@@ -169,7 +169,7 @@ func (a *Agent) Run(ctx context.Context, session *Session, userInput string) (*S
 		}
 	}
 
-	return session, "", fmt.Errorf("exceeded maximum steps (%d)", a.maxSteps)
+	return session, "", fmt.Errorf("exceeded maximum steps (%d). Complex tasks may need more steps. Try increasing with --max-steps flag.", a.maxSteps)
 }
 
 // getAIResponse gets a response from the AI caller with session messages

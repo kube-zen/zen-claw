@@ -122,7 +122,7 @@ func (s *AgentService) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 	// Set max steps
 	maxSteps := req.MaxSteps
 	if maxSteps == 0 {
-		maxSteps = 20
+		maxSteps = 50
 	}
 	
 	// Create AI caller for gateway

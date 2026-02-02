@@ -78,6 +78,11 @@ func (f *Factory) CreateProvider(name string) (ai.Provider, error) {
 			}
 		}
 		
+		// Validate that we have a valid API key
+		if apiKey == "" {
+			return nil, fmt.Errorf("invalid API key for provider %s", name)
+		}
+		
 		return NewOpenAICompatibleProvider(name, config)
 
 	case "mock":
@@ -120,4 +125,36 @@ func (f *Factory) ListAvailableProviders() []string {
 	}
 	
 	return providers
+}
+
+// ValidateProviderConfig validates that the provider configuration is valid
+func (f *Factory) ValidateProviderConfig(name string) error {
+	// Check if provider exists in our supported list
+	supportedProviders := []string{"openai", "deepseek", "glm", "minimax", "qwen"}
+	
+	valid := false
+	for _, provider := range supportedProviders {
+		if provider == name {
+			valid = true
+			break
+		}
+	}
+	
+	if !valid {
+		return fmt.Errorf("unsupported provider: %s", name)
+	}
+	
+	// Check if API key is present
+	apiKey := f.config.GetAPIKey(name)
+	if apiKey == "" {
+		// Check environment variable
+		envVar := fmt.Sprintf("%s_API_KEY", strings.ToUpper(name))
+		apiKey = os.Getenv(envVar)
+	}
+	
+	if apiKey == "" {
+		return fmt.Errorf("missing API key for provider %s", name)
+	}
+	
+	return nil
 }

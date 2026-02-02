@@ -69,7 +69,7 @@ Examples:
 	cmd.Flags().StringVar(&workingDir, "working-dir", ".", "Working directory for tools")
 	cmd.Flags().StringVar(&sessionID, "session-id", "", "Session ID (for continuing sessions)")
 	cmd.Flags().BoolVar(&showProgress, "progress", false, "Show progress in console (CLI only)")
-	cmd.Flags().IntVar(&maxSteps, "max-steps", 20, "Maximum tool execution steps")
+	cmd.Flags().IntVar(&maxSteps, "max-steps", 50, "Maximum tool execution steps")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Enable verbose output for debugging")
 	
 	return cmd
@@ -318,7 +318,7 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			fmt.Println("  /exit, /quit       - Exit interactive mode")
 			fmt.Println("  /help              - Show this help")
 			continue
-		case input == "/providers":
+		case input == "/providers" || input == "/provider":
 			fmt.Println("Available providers:")
 			fmt.Println("  - deepseek  (default)")
 			fmt.Println("  - qwen")
@@ -328,8 +328,14 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			fmt.Println("\nUse '/provider <provider-name>' to switch providers")
 			fmt.Println("Each provider has its own models. Use '/models' to see models for current provider.")
 			continue
-		case strings.HasPrefix(input, "/provider "):
-			newProvider := strings.TrimSpace(strings.TrimPrefix(input, "/provider "))
+		case strings.HasPrefix(input, "/provider ") || strings.HasPrefix(input, "/providers "):
+			// Extract provider name, handling both prefixes
+			var newProvider string
+			if strings.HasPrefix(input, "/provider ") {
+				newProvider = strings.TrimSpace(strings.TrimPrefix(input, "/provider "))
+			} else {
+				newProvider = strings.TrimSpace(strings.TrimPrefix(input, "/providers "))
+			}
 			
 			// Validate provider
 			validProviders := []string{"deepseek", "qwen", "glm", "minimax", "openai"}

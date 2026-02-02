@@ -24,7 +24,7 @@ func NewGatewayClient(baseURL string) *GatewayClient {
 	
 	return &GatewayClient{
 		baseURL: strings.TrimSuffix(baseURL, "/"),
-		timeout: 120 * time.Second, // Longer timeout for agent tasks
+		timeout: 300 * time.Second, // 5 minutes for complex agent tasks
 	}
 }
 
@@ -68,6 +68,10 @@ func (c *GatewayClient) Send(req ChatRequest) (*ChatResponse, error) {
 	// Send request
 	resp, err := client.Do(httpReq)
 	if err != nil {
+		// Provide better error message for timeouts
+		if strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "deadline") {
+			return nil, fmt.Errorf("gateway request timed out after %v. Complex tasks may take longer. Try increasing timeout or breaking task into smaller steps.", c.timeout)
+		}
 		return nil, fmt.Errorf("HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
