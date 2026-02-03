@@ -173,7 +173,18 @@ func (s *AgentService) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 // ChatWithProgress handles a chat request with progress callback for streaming
 func (s *AgentService) ChatWithProgress(ctx context.Context, req ChatRequest, progressCb ProgressCallback) (*ChatResponse, error) {
 	// Get or create session
-	session := s.getOrCreateSession(req.SessionID)
+	session, resumed := s.getOrCreateSessionWithInfo(req.SessionID)
+
+	// Notify if session was resumed with existing context
+	if resumed && progressCb != nil {
+		msgCount := len(session.GetMessages())
+		progressCb(map[string]interface{}{
+			"type":          "session_resumed",
+			"session_id":    req.SessionID,
+			"message_count": msgCount,
+			"message":       fmt.Sprintf("Resumed session '%s' with %d messages (context restored)", req.SessionID, msgCount),
+		})
+	}
 
 	// Set working directory if provided
 	if req.WorkingDir != "" {
@@ -362,13 +373,21 @@ func (s *AgentService) DeleteSession(sessionID string) bool {
 // IMPORTANT: Sessions are fresh by default (like Cursor).
 // Only explicitly named sessions are persisted.
 func (s *AgentService) getOrCreateSession(sessionID string) *agent.Session {
+	session, _ := s.getOrCreateSessionWithInfo(sessionID)
+	return session
+}
+
+// getOrCreateSessionWithInfo returns the session and whether it was resumed from persistence
+func (s *AgentService) getOrCreateSessionWithInfo(sessionID string) (*agent.Session, bool) {
 	// Check if this is an explicitly named session (not auto-generated)
 	isNamedSession := sessionID != "" && !strings.HasPrefix(sessionID, "session_")
 
 	// Try to get existing named session from persistent store
 	if isNamedSession && s.sessionStore != nil {
 		if session, exists := s.sessionStore.GetSession(sessionID); exists {
-			return session
+			msgCount := len(session.GetMessages())
+			log.Printf("[AgentService] Resuming session '%s' with %d messages (context restored)", sessionID, msgCount)
+			return session, true // Resumed from persistence
 		}
 	}
 
@@ -378,7 +397,7 @@ func (s *AgentService) getOrCreateSession(sessionID string) *agent.Session {
 		session, exists := s.fallbackSessions[sessionID]
 		s.fallbackMu.RUnlock()
 		if exists {
-			return session
+			return session, false // Not resumed from persistence (was in memory)
 		}
 	}
 
@@ -419,7 +438,7 @@ When editing files, use edit_file with unique string matches. For new files, use
 		s.fallbackMu.Unlock()
 	}
 
-	return session
+	return session, false // New session, not resumed
 }
 
 // isNamedSession returns true if session was explicitly named (not auto-generated)

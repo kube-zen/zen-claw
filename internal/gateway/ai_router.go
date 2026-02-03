@@ -50,12 +50,13 @@ func NewAIRouter(cfg *config.Config) *AIRouter {
 
 	// Try to load each configured provider
 	providerConfigs := map[string]*config.ProviderConfig{
-		"deepseek": cfg.Providers.DeepSeek,
-		"glm":      cfg.Providers.GLM,
-		"minimax":  cfg.Providers.Minimax,
-		"openai":   cfg.Providers.OpenAI,
-		"qwen":     cfg.Providers.Qwen,
-		"kimi":     cfg.Providers.Kimi,
+		"deepseek":  cfg.Providers.DeepSeek,
+		"glm":       cfg.Providers.GLM,
+		"minimax":   cfg.Providers.Minimax,
+		"openai":    cfg.Providers.OpenAI,
+		"qwen":      cfg.Providers.Qwen,
+		"kimi":      cfg.Providers.Kimi,
+		"anthropic": cfg.Providers.Anthropic,
 	}
 
 	for name, _ := range providerConfigs {

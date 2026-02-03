@@ -12,7 +12,7 @@ func TestTruncateOutput(t *testing.T) {
 		name      string
 		input     string
 		maxBytes  int
-		expectLen int // 0 means we don't check exact length
+		expectLen int  // 0 means we don't check exact length
 		expectMod bool // true if we expect truncation
 	}{
 		{

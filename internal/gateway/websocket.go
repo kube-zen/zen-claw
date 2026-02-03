@@ -362,6 +362,9 @@ func (c *WSClient) sendError(id, message string) {
 
 // wsHandler handles WebSocket upgrade requests
 func (s *Server) wsHandler(w http.ResponseWriter, r *http.Request) {
+	s.trackRequest()
+	defer s.untrackRequest()
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("[WebSocket] Upgrade error: %v", err)

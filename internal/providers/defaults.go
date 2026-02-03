@@ -35,10 +35,14 @@ var Defaults = map[string]ProviderDefaults{
 		Model:   "kimi-k2-5",
 		BaseURL: "https://api.moonshot.cn/v1",
 	},
+	"anthropic": {
+		Model:   "claude-sonnet-4-20250514",
+		BaseURL: "https://api.anthropic.com/v1",
+	},
 }
 
 // ValidProviders returns a list of all valid provider names.
-var ValidProviders = []string{"deepseek", "qwen", "glm", "minimax", "openai", "kimi"}
+var ValidProviders = []string{"deepseek", "qwen", "glm", "minimax", "openai", "kimi", "anthropic"}
 
 // DefaultProvider is the default provider when none is specified.
 const DefaultProvider = "deepseek"
@@ -78,6 +82,8 @@ func InferProviderFromModel(modelName string) string {
 		return "openai"
 	case strings.Contains(modelName, "kimi") || strings.Contains(modelName, "moonshot"):
 		return "kimi"
+	case strings.Contains(modelName, "claude") || strings.Contains(modelName, "anthropic"):
+		return "anthropic"
 	default:
 		return ""
 	}

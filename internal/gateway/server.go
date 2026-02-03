@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -18,20 +19,23 @@ import (
 
 // Server represents the Zen Claw gateway server
 type Server struct {
-	config       *config.Config
-	server       *http.Server
-	mu           sync.RWMutex
-	running      bool
-	pidFile      string
-	agentService *AgentService
+	config          *config.Config
+	server          *http.Server
+	mu              sync.RWMutex
+	running         bool
+	pidFile         string
+	agentService    *AgentService
+	activeRequests  int64
+	shutdownTimeout time.Duration
 }
 
 // NewServer creates a new gateway server
 func NewServer(cfg *config.Config) *Server {
 	srv := &Server{
-		config:       cfg,
-		pidFile:      "/tmp/zen-claw-gateway.pid",
-		agentService: NewAgentService(cfg),
+		config:          cfg,
+		pidFile:         "/tmp/zen-claw-gateway.pid",
+		agentService:    NewAgentService(cfg),
+		shutdownTimeout: 30 * time.Second, // Allow in-flight requests to complete
 	}
 
 	mux := http.NewServeMux()
@@ -92,7 +96,7 @@ func (s *Server) Start() error {
 	}
 }
 
-// Stop stops the gateway server
+// Stop stops the gateway server with graceful shutdown
 func (s *Server) Stop() error {
 	s.mu.Lock()
 	if !s.running {
@@ -102,18 +106,47 @@ func (s *Server) Stop() error {
 	s.running = false
 	s.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	log.Printf("Initiating graceful shutdown (timeout: %v)...", s.shutdownTimeout)
+
+	// Log active requests
+	active := atomic.LoadInt64(&s.activeRequests)
+	if active > 0 {
+		log.Printf("Waiting for %d active request(s) to complete...", active)
+	}
+
+	// Create shutdown context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), s.shutdownTimeout)
 	defer cancel()
 
+	// Shutdown HTTP server (stops accepting new connections, waits for active ones)
 	if err := s.server.Shutdown(ctx); err != nil {
-		return fmt.Errorf("shutdown failed: %v", err)
+		log.Printf("HTTP shutdown error: %v", err)
 	}
+
+	// Close agent service (cleanup MCP client, etc.)
+	log.Println("Closing agent service...")
+	s.agentService.Close()
 
 	// Remove PID file
 	os.Remove(s.pidFile)
 
-	log.Println("Gateway stopped")
+	log.Println("Gateway stopped gracefully")
 	return nil
+}
+
+// trackRequest increments active request counter
+func (s *Server) trackRequest() {
+	atomic.AddInt64(&s.activeRequests, 1)
+}
+
+// untrackRequest decrements active request counter
+func (s *Server) untrackRequest() {
+	atomic.AddInt64(&s.activeRequests, -1)
+}
+
+// ActiveRequests returns the number of active requests
+func (s *Server) ActiveRequests() int64 {
+	return atomic.LoadInt64(&s.activeRequests)
 }
 
 // Restart restarts the gateway server
@@ -189,6 +222,9 @@ func (s *Server) statsHandler(w http.ResponseWriter, r *http.Request) {
 
 // chatHandler handles chat requests
 func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
+	s.trackRequest()
+	defer s.untrackRequest()
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -397,6 +433,9 @@ func splitString(s string, sep rune) []string {
 
 // streamChatHandler handles streaming chat requests via SSE
 func (s *Server) streamChatHandler(w http.ResponseWriter, r *http.Request) {
+	s.trackRequest()
+	defer s.untrackRequest()
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return

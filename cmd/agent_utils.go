@@ -39,6 +39,9 @@ func isModelCompatibleWithProvider(modelName, provider string) bool {
 // displayProgressEvent prints a progress event to the console with minimal formatting
 func displayProgressEvent(event ProgressEvent) {
 	switch event.Type {
+	case "session_resumed":
+		// Show that context was restored
+		fmt.Printf("📂 %s\n", event.Message)
 	case "start":
 		// Skip - already shown in header
 	case "step":

@@ -147,12 +147,13 @@ var ProviderContextInfo = map[string]int{
 }
 
 type ProvidersConfig struct {
-	Kimi     *ProviderConfig `yaml:"kimi,omitempty"`
-	OpenAI   *ProviderConfig `yaml:"openai,omitempty"`
-	DeepSeek *ProviderConfig `yaml:"deepseek,omitempty"`
-	GLM      *ProviderConfig `yaml:"glm,omitempty"`
-	Minimax  *ProviderConfig `yaml:"minimax,omitempty"`
-	Qwen     *ProviderConfig `yaml:"qwen,omitempty"`
+	Kimi      *ProviderConfig `yaml:"kimi,omitempty"`
+	OpenAI    *ProviderConfig `yaml:"openai,omitempty"`
+	DeepSeek  *ProviderConfig `yaml:"deepseek,omitempty"`
+	GLM       *ProviderConfig `yaml:"glm,omitempty"`
+	Minimax   *ProviderConfig `yaml:"minimax,omitempty"`
+	Qwen      *ProviderConfig `yaml:"qwen,omitempty"`
+	Anthropic *ProviderConfig `yaml:"anthropic,omitempty"`
 }
 
 type ProviderConfig struct {
