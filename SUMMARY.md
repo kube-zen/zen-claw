@@ -4,36 +4,53 @@
 
 Zen Claw is a Go-based AI agent system with:
 - **6 AI providers** (DeepSeek, Kimi, Qwen, GLM, Minimax, OpenAI)
-- **Real-time progress streaming** via SSE
-- **8 tools** for file/system operations
-- **Session persistence** with multi-session support
-- **Gateway architecture** for scalable deployments
+- **4 operation modes** (Agent, Consensus, Factory, Fabric)
+- **24+ tools** for file, git, web, and system operations
+- **Real-time streaming** via SSE and WebSocket
+- **SQLite session persistence** with CLI management
+- **Plugin system** for custom tools
+- **RAG support** with codebase indexing
+- **MCP protocol** for external tool integration
 
 ## Architecture
 
 ```
-┌────────────┐    SSE     ┌────────────┐    API    ┌────────────┐
-│   CLI      │◄──────────►│  Gateway   │◄─────────►│ Providers  │
-│  Client    │  Stream    │  :8080     │           │ 6 backends │
-└────────────┘            └────────────┘           └────────────┘
-                                │
-                          ┌─────┴─────┐
-                          │  Session  │
-                          │   Store   │
-                          └───────────┘
+┌────────────┐   SSE/WS    ┌────────────┐    API    ┌────────────┐
+│   CLI      │◄───────────►│  Gateway   │◄─────────►│ Providers  │
+│  Client    │   Stream    │   :8080    │           │ 6 backends │
+└────────────┘             └────────────┘           └────────────┘
+                                 │
+                    ┌────────────┼────────────┐
+                    │            │            │
+              ┌─────┴─────┐ ┌────┴────┐ ┌────┴────┐
+              │  SQLite   │ │ Plugins │ │  RAG    │
+              │ Sessions  │ │         │ │ Index   │
+              └───────────┘ └─────────┘ └─────────┘
 ```
+
+## Operation Modes
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| **Agent** | Single AI with tools | Daily coding tasks |
+| **Consensus** | 3+ AIs → arbiter | Architecture decisions |
+| **Factory** | Coordinator + specialists | Multi-phase projects |
+| **Fabric** | Interactive multi-worker | Complex team tasks |
 
 ## Key Features
 
-### Real-Time Progress
-```
-🚀 Starting with deepseek/deepseek-chat
-📍 Step 1/100: Thinking...
-   💭 Waiting for AI response...
-   🔧 list_dir(path=".")
-   ✓ list_dir → 34 items
-✅ Task completed
-```
+### Tools (24+)
+| Category | Tools |
+|----------|-------|
+| **File** | read_file, write_file, edit_file, append_file, list_dir, search_files |
+| **Git** | git_status, git_diff, git_add, git_commit, git_push, git_log |
+| **Preview** | preview_write, preview_edit |
+| **Web** | web_search, web_fetch |
+| **System** | exec, system_info, process |
+| **Advanced** | apply_patch |
+| **RAG** | code_search, find_symbol, get_context |
+| **MCP** | External tools via MCP servers |
+| **Plugins** | Custom script-based tools |
 
 ### Multi-Provider Support
 | Provider | Model | Context | Best For |
@@ -45,52 +62,74 @@ Zen Claw is a Go-based AI agent system with:
 | Minimax | minimax-M2.1 | 128K | Balanced |
 | OpenAI | gpt-4o-mini | 128K | Fallback |
 
-### Tool System
-- `exec` - Shell commands
-- `read_file` / `write_file` / `edit_file` / `append_file` - File ops
-- `list_dir` - Directory listing
-- `search_files` - Regex search
-- `system_info` - System info
-
 ### Session Management
-- Max 5 concurrent sessions (configurable)
-- Persistent to `/tmp/zen-claw-sessions/`
-- Background/activate states
-- API management
+- SQLite persistence (`~/.zen/zen-claw/data/sessions.db`)
+- Named sessions survive gateway restarts
+- CLI commands: `/session list`, `/session load`, `/session clean`
 
-## Technical Details
+### Plugin System
+```bash
+zen-claw plugins init my-tool --lang bash
+zen-claw plugins list
+```
 
-### Timeouts
-- HTTP Client: 45 min
-- Agent Context: 30 min
-- Per-Step: 5 min
-- Max Steps: 100 (configurable)
+### RAG (Codebase Indexing)
+```bash
+zen-claw index build .
+zen-claw index search "authentication"
+```
 
-### API Endpoints
-- `POST /chat` - Blocking request
-- `POST /chat/stream` - SSE streaming
-- `GET /sessions` - List sessions
-- `GET/DELETE /sessions/{id}` - Session ops
+## Quick Start
 
-### Configuration
-- File: `~/.zen/zen-claw/config.yaml`
-- Env: `{PROVIDER}_API_KEY`
-- Provider fallback ordering
+```bash
+# Build
+go build -o zen-claw .
+
+# Set API key
+export DEEPSEEK_API_KEY=sk-...
+
+# Start gateway
+./zen-claw gateway start &
+
+# Interactive mode
+./zen-claw agent
+```
+
+## Configuration
+
+File: `~/.zen/zen-claw/config.yaml`
+
+```yaml
+providers:
+  deepseek:
+    api_key: sk-...
+    model: deepseek-chat
+
+default:
+  provider: deepseek
+
+sessions:
+  max_sessions: 5
+
+plugins:
+  dir: ~/.zen/zen-claw/plugins
+```
 
 ## Codebase Structure
 
 ```
 zen-claw/
 ├── cmd/                    # CLI commands
-│   ├── agent.go           # Agent command + streaming client
-│   ├── gateway.go         # Gateway server
-│   └── ...
 ├── internal/
 │   ├── agent/             # Agent engine + tools
-│   ├── gateway/           # HTTP server + SSE
-│   ├── providers/         # OpenAI-compatible providers
-│   ├── config/            # YAML configuration
-│   └── ...
+│   ├── gateway/           # HTTP server + SSE/WS
+│   ├── providers/         # AI provider clients
+│   ├── config/            # Configuration
+│   ├── plugins/           # Plugin system
+│   ├── rag/               # Codebase indexing
+│   ├── mcp/               # MCP protocol client
+│   ├── consensus/         # Multi-AI consensus
+│   └── factory/           # Factory mode
 ├── main.go
 └── go.mod
 ```
@@ -98,15 +137,6 @@ zen-claw/
 ## Philosophy
 
 - **Trunk-based**: Everything on `main`
-- **Minimal**: No CI overhead
+- **Go-native**: Single binary, no external dependencies
 - **Practical**: Get things done
-- **Go-native**: Single binary
-
-## What's Next
-
-See [README.md](README.md) roadmap for:
-- WebSocket support
-- Token tracking
-- Consensus mode
-- Factory mode
-- Web UI
+- **Extensible**: Plugins, MCP, multiple providers

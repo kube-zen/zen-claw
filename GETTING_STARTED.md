@@ -103,10 +103,10 @@ Single AI agent with tools - the main interface.
 | Command | Description |
 |---------|-------------|
 | `/help` | Show all commands |
-| `/sessions` | List saved sessions |
-| `/sessions info` | Show storage info |
-| `/sessions clean --all` | Delete all sessions |
-| `/load <name>` | Load a saved session |
+| `/session list` | List saved sessions |
+| `/session load <name>` | Load a saved session |
+| `/session info` | Show storage info |
+| `/session clean --all` | Delete all sessions |
 | `/clear` | Fresh context |
 | `/provider <name>` | Switch provider |
 | `/model <name>` | Switch model |
@@ -247,7 +247,42 @@ Then just type a task - it goes through all workers in parallel, then coordinato
 ./zen-claw sessions clean --all
 ```
 
-## Available Tools (20+)
+## Plugins
+
+Extend zen-claw with custom tools using scripts.
+
+```bash
+# Create plugin from template
+zen-claw plugins init my-tool --lang bash
+zen-claw plugins init my-tool --lang python
+
+# List installed plugins
+zen-claw plugins list
+
+# Plugin info
+zen-claw plugins info
+```
+
+Plugins live in `~/.zen/zen-claw/plugins/<name>/` with a `plugin.yaml` manifest.
+
+## RAG (Codebase Indexing)
+
+Index your codebase for intelligent code search.
+
+```bash
+# Index current project
+zen-claw index build .
+
+# Search indexed code
+zen-claw index search "authentication"
+
+# View stats
+zen-claw index stats
+```
+
+When indexed, the AI gains tools: `code_search`, `find_symbol`, `get_context`.
+
+## Available Tools (24+)
 
 | Category | Tools |
 |----------|-------|
@@ -257,7 +292,9 @@ Then just type a task - it goes through all workers in parallel, then coordinato
 | **Web** | web_search, web_fetch |
 | **System** | exec, system_info, process |
 | **Advanced** | apply_patch |
+| **RAG** | code_search, find_symbol, get_context |
 | **MCP** | External tools via MCP servers |
+| **Plugins** | Custom tools from ~/.zen/zen-claw/plugins/ |
 
 ## Troubleshooting
 
@@ -280,6 +317,12 @@ pkill -f "zen-claw gateway"
 ├── config.yaml                    # Configuration
 ├── data/
 │   └── sessions.db               # Session database
+├── plugins/                       # Custom plugins
+│   └── <name>/
+│       ├── plugin.yaml           # Plugin manifest
+│       └── run.sh                # Plugin script
+├── index/                         # RAG indexes
+│   └── <project>.db              # Project index (SQLite FTS5)
 └── fabric-profiles/              # Saved fabric configurations
 
 ~/.zen-claw-history               # CLI history
@@ -292,4 +335,6 @@ pkill -f "zen-claw gateway"
 2. Try `/think high` for complex reasoning
 3. Try `zen-claw consensus --role security_architect "review auth"` for multi-AI
 4. Save sessions: `--session my-project`
-5. Check `/stats` for cache efficiency
+5. Index your codebase: `zen-claw index build .`
+6. Create a custom plugin: `zen-claw plugins init my-tool`
+7. Check `/stats` for cache efficiency

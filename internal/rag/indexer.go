@@ -19,13 +19,13 @@ import (
 
 // FileInfo represents indexed file information
 type FileInfo struct {
-	Path       string    `json:"path"`
-	Size       int64     `json:"size"`
-	Hash       string    `json:"hash"`
-	Language   string    `json:"language"`
-	Symbols    []string  `json:"symbols"`    // Functions, classes, types
-	Imports    []string  `json:"imports"`    // Dependencies
-	UpdatedAt  time.Time `json:"updated_at"`
+	Path      string    `json:"path"`
+	Size      int64     `json:"size"`
+	Hash      string    `json:"hash"`
+	Language  string    `json:"language"`
+	Symbols   []string  `json:"symbols"` // Functions, classes, types
+	Imports   []string  `json:"imports"` // Dependencies
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Indexer manages codebase indexing

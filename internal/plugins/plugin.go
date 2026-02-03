@@ -20,11 +20,11 @@ type PluginManifest struct {
 	Version     string                 `yaml:"version"`
 	Description string                 `yaml:"description"`
 	Author      string                 `yaml:"author,omitempty"`
-	Command     string                 `yaml:"command"`     // e.g., "python", "bash", "./run.sh"
-	Args        []string               `yaml:"args"`        // Additional args before input
-	Timeout     string                 `yaml:"timeout"`     // e.g., "30s", "5m"
-	Parameters  map[string]interface{} `yaml:"parameters"`  // JSON Schema for tool parameters
-	Env         map[string]string      `yaml:"env"`         // Environment variables
+	Command     string                 `yaml:"command"`    // e.g., "python", "bash", "./run.sh"
+	Args        []string               `yaml:"args"`       // Additional args before input
+	Timeout     string                 `yaml:"timeout"`    // e.g., "30s", "5m"
+	Parameters  map[string]interface{} `yaml:"parameters"` // JSON Schema for tool parameters
+	Env         map[string]string      `yaml:"env"`        // Environment variables
 }
 
 // Plugin represents a loaded plugin
