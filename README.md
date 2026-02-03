@@ -279,10 +279,14 @@ zen-claw completion fish | source
 - [x] **Circuit breaker** - Provider health tracking, auto-disable unhealthy providers
 - [x] **Streaming responses** - Provider-level streaming with `--stream` flag
 - [x] **MCP protocol support** - Connect to MCP servers (`zen-claw mcp connect`)
+- [x] **Web tools** - web_search (Brave API) and web_fetch (HTML→markdown)
+- [x] **Process management** - Background exec with poll/log/kill
+- [x] **Apply patch** - Multi-file structured patches
 
 ### Short Term (Next)
 
 - [ ] **MCP in agent** - Wire MCP tools into agent sessions
+- [ ] **Thinking levels** - `/think low/medium/high` for model reasoning depth
 
 ### Medium Term
 

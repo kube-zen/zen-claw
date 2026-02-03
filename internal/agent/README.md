@@ -11,10 +11,13 @@ Inspired by pi-coding-agent architecture, providing:
 ```
 Agent (core loop)
 ├── Session (state management)
-├── Tools (16 tools)
+├── Tools (20 tools)
 │   ├── File: exec, read_file, write_file, edit_file, append_file, list_dir, search_files, system_info
 │   ├── Git: git_status, git_diff, git_add, git_commit, git_push, git_log
-│   └── Preview: preview_write, preview_edit
+│   ├── Preview: preview_write, preview_edit
+│   ├── Web: web_search, web_fetch
+│   ├── Process: process (background exec management)
+│   └── Patch: apply_patch (multi-file)
 ├── Providers (DeepSeek, OpenAI, GLM, Minimax, Qwen, Kimi)
 └── SessionManager (persistence)
 ```
