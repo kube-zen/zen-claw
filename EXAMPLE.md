@@ -211,12 +211,12 @@ export DEEPSEEK_API_KEY="sk-..."
 # ~/.zen/zen-claw/config.yaml
 providers:
   deepseek:
-    api_key: "sk-f31ee108d00a43839a7ee392f8cab939"
+    api_key: "${DEEPSEEK_API_KEY}"
     model: "deepseek-chat"
     base_url: "https://api.deepseek.com"
   
   qwen:
-    api_key: "sk-6683180cd0df426c938c67e965bee586"
+    api_key: "${QWEN_API_KEY}"
     model: "qwen3-coder-30b-a3b-instruct"
     base_url: "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
 
