@@ -60,6 +60,7 @@ func NewAgentService(cfg *config.Config) *AgentService {
 	// Create tools (working directory will be set per session)
 	// Full toolset for code generation and editing
 	tools := []agent.Tool{
+		// File operations
 		agent.NewExecTool(""),        // Shell commands
 		agent.NewReadFileTool(""),    // Read files
 		agent.NewWriteFileTool(""),   // Create/overwrite files
@@ -68,6 +69,16 @@ func NewAgentService(cfg *config.Config) *AgentService {
 		agent.NewListDirTool(""),     // List directories
 		agent.NewSearchFilesTool(""), // Grep-like search
 		agent.NewSystemInfoTool(),    // System info
+		// Git operations
+		agent.NewGitStatusTool(""), // git status
+		agent.NewGitDiffTool(""),   // git diff
+		agent.NewGitAddTool(""),    // git add
+		agent.NewGitCommitTool(""), // git commit
+		agent.NewGitPushTool(""),   // git push
+		agent.NewGitLogTool(""),    // git log
+		// Preview (diff before write)
+		agent.NewPreviewWriteTool(""), // Preview write changes
+		agent.NewPreviewEditTool(""),  // Preview edit changes
 	}
 
 	return &AgentService{

@@ -14,6 +14,7 @@ func newToolsCmd() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			// Create the actual tools that agents use
 			tools := []agent.Tool{
+				// File operations
 				agent.NewExecTool("."),
 				agent.NewReadFileTool("."),
 				agent.NewWriteFileTool("."),
@@ -22,6 +23,16 @@ func newToolsCmd() *cobra.Command {
 				agent.NewListDirTool("."),
 				agent.NewSearchFilesTool("."),
 				agent.NewSystemInfoTool(),
+				// Git operations
+				agent.NewGitStatusTool("."),
+				agent.NewGitDiffTool("."),
+				agent.NewGitAddTool("."),
+				agent.NewGitCommitTool("."),
+				agent.NewGitPushTool("."),
+				agent.NewGitLogTool("."),
+				// Preview (diff before write)
+				agent.NewPreviewWriteTool("."),
+				agent.NewPreviewEditTool("."),
 			}
 
 			fmt.Println("Available Tools:")
