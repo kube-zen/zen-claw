@@ -24,49 +24,16 @@ func NewOpenAICompatibleProvider(name string, config ProviderConfig) (*OpenAICom
 		return nil, fmt.Errorf("API key required for %s", name)
 	}
 
-	// Set default base URLs for known providers
+	// Use centralized defaults
 	if config.BaseURL == "" {
-		switch strings.ToLower(name) {
-		case "openai":
-			config.BaseURL = "https://api.openai.com/v1"
-		case "deepseek":
-			config.BaseURL = "https://api.deepseek.com"
-		case "glm":
-			config.BaseURL = "https://open.bigmodel.cn/api/paas/v4"
-		case "minimax":
-			config.BaseURL = "https://api.minimax.chat/v1"
-		case "qwen":
-			// Qwen-specific base URL
-			config.BaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-		case "kimi":
-			// Moonshot AI (Kimi) - OpenAI compatible
-			config.BaseURL = "https://api.moonshot.cn/v1"
-		default:
-			// Use OpenAI default if not specified
+		config.BaseURL = GetDefaultBaseURL(name)
+		if config.BaseURL == "" {
 			config.BaseURL = "https://api.openai.com/v1"
 		}
 	}
 
-	// Set default models for known providers
 	if config.Model == "" {
-		switch strings.ToLower(name) {
-		case "openai":
-			config.Model = "gpt-4o-mini"
-		case "deepseek":
-			config.Model = "deepseek-chat"
-		case "glm":
-			config.Model = "glm-4.7"
-		case "minimax":
-			config.Model = "minimax-M2.1"
-		case "qwen":
-			// Default Qwen model optimized for coding with large context
-			config.Model = "qwen3-coder-30b"
-		case "kimi":
-			// Kimi K2.5 - 256K context, excellent for Go/K8s, $0.10/M input
-			config.Model = "kimi-k2-5"
-		default:
-			config.Model = "gpt-4o-mini"
-		}
+		config.Model = GetDefaultModel(name)
 	}
 
 	clientConfig := openai.DefaultConfig(config.APIKey)

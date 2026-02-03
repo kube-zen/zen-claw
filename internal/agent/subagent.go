@@ -21,19 +21,19 @@ const (
 
 // SubagentRun represents a background agent run
 type SubagentRun struct {
-	ID           string
-	Task         string
-	Label        string
-	Status       SubagentStatus
-	Result       string
-	Error        string
-	StartTime    time.Time
-	EndTime      *time.Time
-	TokensUsed   int
-	StepsUsed    int
-	ParentID     string
-	cancel       context.CancelFunc
-	mu           sync.RWMutex
+	ID         string
+	Task       string
+	Label      string
+	Status     SubagentStatus
+	Result     string
+	Error      string
+	StartTime  time.Time
+	EndTime    *time.Time
+	TokensUsed int
+	StepsUsed  int
+	ParentID   string
+	cancel     context.CancelFunc
+	mu         sync.RWMutex
 }
 
 // SubagentManager manages background subagent runs

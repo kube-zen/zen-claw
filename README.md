@@ -261,7 +261,7 @@ zen-claw completion fish | source
 - [x] WebSocket support - Bidirectional communication with cancel support
 - [x] **Slack integration** - Thread-based sessions, progress streaming, commands
 - [x] Session persistence and management
-- [x] Tool system (20 tools: file, git, web, process, patch)
+- [x] Tool system (21 tools: file, git, web, process, patch, subagent)
 - [x] Interactive CLI with readline
 - [x] Provider fallback routing
 - [x] Context limit control
@@ -283,6 +283,7 @@ zen-claw completion fish | source
 - [x] **Process management** - Background exec with poll/log/kill
 - [x] **Apply patch** - Multi-file structured patches
 - [x] **Thinking levels** - `/think off/low/medium/high` for model reasoning depth
+- [x] **Subagents** - Spawn parallel background agent runs
 
 ### Short Term (Next)
 

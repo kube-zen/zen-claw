@@ -170,6 +170,7 @@ The AI agent has access to 20 tools:
 | `web_fetch` | Fetch URL and extract readable content |
 | `process` | Background process management (start/poll/kill) |
 | `apply_patch` | Multi-file structured patches |
+| `subagent` | Spawn parallel background agent runs |
 
 ## Troubleshooting
 

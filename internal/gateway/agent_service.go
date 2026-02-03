@@ -62,6 +62,7 @@ type AgentService struct {
 	fallbackSessions map[string]*agent.Session
 	fallbackMu       sync.RWMutex
 	mcpClient        *mcp.Client
+	subagentManager  *agent.SubagentManager
 }
 
 // NewAgentService creates a new agent service for the gateway
@@ -140,7 +141,8 @@ func NewAgentService(cfg *config.Config) *AgentService {
 		}
 	}
 
-	return &AgentService{
+	// Create the service first (needed for subagent factory)
+	svc := &AgentService{
 		config:           cfg,
 		aiRouter:         aiRouter,
 		tools:            tools,
@@ -148,6 +150,20 @@ func NewAgentService(cfg *config.Config) *AgentService {
 		fallbackSessions: make(map[string]*agent.Session),
 		mcpClient:        mcpClient,
 	}
+
+	// Create subagent manager with factory that creates agents
+	svc.subagentManager = agent.NewSubagentManager(4, func() (*agent.Agent, error) {
+		// Create AI caller for subagent
+		aiCaller := &GatewayAICaller{
+			aiRouter: aiRouter,
+			provider: cfg.Default.Provider,
+			model:    cfg.GetModel(cfg.Default.Provider),
+		}
+		// Create agent with basic tools (no subagent tool to prevent recursion)
+		return agent.NewAgent(aiCaller, tools, 50), nil
+	})
+
+	return svc
 }
 
 // ChatRequest is an alias to the shared type
@@ -224,8 +240,15 @@ func (s *AgentService) ChatWithProgress(ctx context.Context, req ChatRequest, pr
 		thinkingLevel: ai.ThinkingLevel(req.ThinkingLevel),
 	}
 
+	// Create tools with subagent tool (scoped to this session)
+	sessionTools := make([]agent.Tool, len(s.tools))
+	copy(sessionTools, s.tools)
+	if s.subagentManager != nil {
+		sessionTools = append(sessionTools, agent.NewSubagentTool(s.subagentManager, req.SessionID))
+	}
+
 	// Create agent with progress callback
-	agentInstance := agent.NewAgent(aiCaller, s.tools, maxSteps)
+	agentInstance := agent.NewAgent(aiCaller, sessionTools, maxSteps)
 
 	// Set progress callback on agent if provided
 	if progressCb != nil {

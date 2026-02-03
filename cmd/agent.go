@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/chzyer/readline"
+	"github.com/neves/zen-claw/internal/providers"
 	"github.com/spf13/cobra"
 )
 
@@ -132,23 +133,7 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 
 	// If model not specified, use default for provider
 	if modelName == "" {
-		// Default models per provider
-		switch providerName {
-		case "deepseek":
-			modelName = "deepseek-chat"
-		case "qwen":
-			modelName = "qwen3-coder-30b-a3b-instruct"
-		case "glm":
-			modelName = "glm-4.7"
-		case "minimax":
-			modelName = "minimax-M2.1"
-		case "openai":
-			modelName = "gpt-4o-mini"
-		case "kimi":
-			modelName = "kimi-k2-5"
-		default:
-			modelName = "deepseek-chat"
-		}
+		modelName = providers.GetDefaultModel(providerName)
 	}
 
 	fmt.Printf("Provider: %s, Model: %s\n", providerName, modelName)
@@ -265,23 +250,7 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 
 	// If model not specified, use default for provider
 	if modelName == "" {
-		// Default models per provider
-		switch providerName {
-		case "deepseek":
-			modelName = "deepseek-chat"
-		case "qwen":
-			modelName = "qwen3-coder-30b-a3b-instruct"
-		case "glm":
-			modelName = "glm-4.7"
-		case "minimax":
-			modelName = "minimax-M2.1"
-		case "openai":
-			modelName = "gpt-4o-mini"
-		case "kimi":
-			modelName = "kimi-k2-5"
-		default:
-			modelName = "deepseek-chat"
-		}
+		modelName = providers.GetDefaultModel(providerName)
 	}
 
 	fmt.Printf("Provider: %s, Model: %s\n", providerName, modelName)
@@ -581,22 +550,7 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			}
 
 			providerName = newProvider
-
-			// Reset to default model for this provider
-			switch providerName {
-			case "deepseek":
-				modelName = "deepseek-chat"
-			case "qwen":
-				modelName = "qwen3-coder-30b-a3b-instruct"
-			case "glm":
-				modelName = "glm-4.7"
-			case "minimax":
-				modelName = "minimax-M2.1"
-			case "openai":
-				modelName = "gpt-4o-mini"
-			case "kimi":
-				modelName = "kimi-k2-5"
-			}
+			modelName = providers.GetDefaultModel(providerName)
 
 			fmt.Printf("Switched to provider: %s (model: %s)\n", providerName, modelName)
 			continue
@@ -795,26 +749,9 @@ func runBasicInteractiveMode(client *GatewayClient, sessionID, workingDir, provi
 }
 
 // inferProviderFromModel tries to infer provider from model name
+// inferProviderFromModel uses centralized provider detection
 func inferProviderFromModel(modelName string) string {
-	modelName = strings.ToLower(modelName)
-
-	// Check for provider patterns in model name
-	if strings.Contains(modelName, "qwen") {
-		return "qwen"
-	} else if strings.Contains(modelName, "deepseek") {
-		return "deepseek"
-	} else if strings.Contains(modelName, "glm") {
-		return "glm"
-	} else if strings.Contains(modelName, "minimax") || strings.Contains(modelName, "abab") {
-		return "minimax"
-	} else if strings.Contains(modelName, "gpt") {
-		return "openai"
-	} else if strings.Contains(modelName, "kimi") || strings.Contains(modelName, "moonshot") {
-		return "kimi"
-	}
-
-	// Could not infer provider
-	return ""
+	return providers.InferProviderFromModel(modelName)
 }
 
 // isModelCompatibleWithProvider checks if a model is likely compatible with a provider
@@ -913,22 +850,7 @@ func runAgentWebSocket(task, modelFlag, providerFlag, workingDir, sessionID stri
 		providerName = "deepseek"
 	}
 	if modelName == "" {
-		switch providerName {
-		case "deepseek":
-			modelName = "deepseek-chat"
-		case "qwen":
-			modelName = "qwen3-coder-30b-a3b-instruct"
-		case "glm":
-			modelName = "glm-4.7"
-		case "minimax":
-			modelName = "minimax-M2.1"
-		case "openai":
-			modelName = "gpt-4o-mini"
-		case "kimi":
-			modelName = "kimi-k2-5"
-		default:
-			modelName = "deepseek-chat"
-		}
+		modelName = providers.GetDefaultModel(providerName)
 	}
 
 	fmt.Printf("Provider: %s, Model: %s\n", providerName, modelName)
