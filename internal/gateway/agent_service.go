@@ -58,11 +58,16 @@ func NewAgentService(cfg *config.Config) *AgentService {
 	}
 
 	// Create tools (working directory will be set per session)
+	// Full toolset for code generation and editing
 	tools := []agent.Tool{
-		agent.NewExecTool(""), // Working dir set per session
-		agent.NewReadFileTool(""),
-		agent.NewListDirTool(""),
-		agent.NewSystemInfoTool(),
+		agent.NewExecTool(""),        // Shell commands
+		agent.NewReadFileTool(""),    // Read files
+		agent.NewWriteFileTool(""),   // Create/overwrite files
+		agent.NewEditFileTool(""),    // String replacement (like Cursor's StrReplace)
+		agent.NewAppendFileTool(""),  // Append to files
+		agent.NewListDirTool(""),     // List directories
+		agent.NewSearchFilesTool(""), // Grep-like search
+		agent.NewSystemInfoTool(),    // System info
 	}
 
 	return &AgentService{

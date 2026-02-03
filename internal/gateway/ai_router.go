@@ -32,6 +32,7 @@ func NewAIRouter(cfg *config.Config) *AIRouter {
 		"minimax":  cfg.Providers.Minimax,
 		"openai":   cfg.Providers.OpenAI,
 		"qwen":     cfg.Providers.Qwen,
+		"kimi":     cfg.Providers.Kimi,
 	}
 
 	for name, _ := range providerConfigs {
@@ -122,7 +123,7 @@ func (r *AIRouter) getProviderChain(preferred string) []string {
 	}
 
 	// Cost-optimized fallback chain (cheapest first)
-	costOptimized := []string{"deepseek", "glm", "minimax", "qwen", "openai"}
+	costOptimized := []string{"deepseek", "kimi", "glm", "minimax", "qwen", "openai"}
 
 	for _, provider := range costOptimized {
 		// Skip if already in chain or not available

@@ -2,11 +2,22 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
 
 	"github.com/neves/zen-claw/internal/config"
 	"github.com/neves/zen-claw/internal/gateway"
 	"github.com/spf13/cobra"
+)
+
+const (
+	pidFile     = "/tmp/zen-claw-gateway.pid"
+	gatewayPort = "8080"
 )
 
 func newGatewayCmd() *cobra.Command {
@@ -68,71 +79,96 @@ func runGatewayStart(cmd *cobra.Command, args []string) error {
 }
 
 func runGatewayStop(cmd *cobra.Command, args []string) error {
-	// Get config path from flag
-	configPath, _ := cmd.Flags().GetString("config")
-
-	// Load config
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	// Create gateway server
-	server := gateway.NewServer(cfg)
-
-	// Stop gateway
 	fmt.Println("Stopping Zen Claw gateway...")
-	if err := server.Stop(); err != nil {
-		return fmt.Errorf("failed to stop gateway: %w", err)
+
+	// Method 1: Try PID file
+	if pidData, err := os.ReadFile(pidFile); err == nil {
+		pidStr := strings.TrimSpace(string(pidData))
+		if pid, err := strconv.Atoi(pidStr); err == nil {
+			if process, err := os.FindProcess(pid); err == nil {
+				if err := process.Signal(syscall.SIGTERM); err == nil {
+					fmt.Printf("Sent SIGTERM to PID %d\n", pid)
+					os.Remove(pidFile)
+					// Wait a moment for graceful shutdown
+					time.Sleep(500 * time.Millisecond)
+					return nil
+				}
+			}
+		}
+		os.Remove(pidFile) // Remove stale PID file
 	}
-	fmt.Println("Gateway stopped")
-	return nil
+
+	// Method 2: Find process by port using lsof
+	out, err := exec.Command("lsof", "-ti", fmt.Sprintf("tcp:%s", gatewayPort)).Output()
+	if err == nil && len(out) > 0 {
+		pids := strings.Fields(strings.TrimSpace(string(out)))
+		for _, pidStr := range pids {
+			if pid, err := strconv.Atoi(pidStr); err == nil {
+				if process, err := os.FindProcess(pid); err == nil {
+					if err := process.Signal(syscall.SIGTERM); err == nil {
+						fmt.Printf("Sent SIGTERM to PID %d (found by port)\n", pid)
+					}
+				}
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+		return nil
+	}
+
+	// Method 3: Check if port is actually in use
+	conn, err := net.DialTimeout("tcp", "localhost:"+gatewayPort, time.Second)
+	if err != nil {
+		fmt.Println("Gateway is not running")
+		return nil
+	}
+	conn.Close()
+
+	return fmt.Errorf("could not stop gateway - process found on port %s but unable to kill", gatewayPort)
 }
 
 func runGatewayRestart(cmd *cobra.Command, args []string) error {
-	// Get config path from flag
-	configPath, _ := cmd.Flags().GetString("config")
-
-	// Load config
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	// Create gateway server
-	server := gateway.NewServer(cfg)
-
-	// Restart gateway
 	fmt.Println("Restarting Zen Claw gateway...")
-	if err := server.Restart(); err != nil {
-		return fmt.Errorf("failed to restart gateway: %w", err)
+
+	// Stop first (ignore errors - might not be running)
+	_ = runGatewayStop(cmd, args)
+
+	// Wait for port to be free
+	for i := 0; i < 10; i++ {
+		conn, err := net.DialTimeout("tcp", "localhost:"+gatewayPort, 100*time.Millisecond)
+		if err != nil {
+			break // Port is free
+		}
+		conn.Close()
+		time.Sleep(200 * time.Millisecond)
 	}
-	return nil
+
+	// Start
+	return runGatewayStart(cmd, args)
 }
 
 func runGatewayStatus(cmd *cobra.Command, args []string) error {
-	// Get config path from flag
-	configPath, _ := cmd.Flags().GetString("config")
-
-	// Load config
-	cfg, err := config.LoadConfig(configPath)
+	// Check if port is in use
+	conn, err := net.DialTimeout("tcp", "localhost:"+gatewayPort, time.Second)
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		fmt.Println("Gateway status: stopped")
+		return nil
+	}
+	conn.Close()
+
+	fmt.Println("Gateway status: running")
+	fmt.Printf("Listening on: :%s\n", gatewayPort)
+
+	// Check PID file
+	if pidData, err := os.ReadFile(pidFile); err == nil {
+		pidStr := strings.TrimSpace(string(pidData))
+		fmt.Printf("PID: %s\n", pidStr)
 	}
 
-	// Create gateway server
-	server := gateway.NewServer(cfg)
-
-	// Get status
-	status := server.Status()
-	fmt.Printf("Gateway status: %s\n", status)
-
-	// Check if PID file exists
-	pidFile := "/tmp/zen-claw-gateway.pid"
-	if _, err := os.Stat(pidFile); err == nil {
-		fmt.Println("PID file exists")
-	} else {
-		fmt.Println("PID file not found")
+	// Try to get health info
+	client := NewGatewayClient("http://localhost:" + gatewayPort)
+	if err := client.HealthCheck(); err == nil {
+		fmt.Println("Health: OK")
 	}
+
 	return nil
 }
