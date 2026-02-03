@@ -273,10 +273,9 @@ zen-claw completion fish | source
 - [x] **Response caching** - In-memory cache with TTL (30-50% cost savings)
 - [x] **Retry/backoff** - Auto-retry failed AI calls with exponential backoff
 - [x] **Token usage tracking** - `/stats` command shows cost per session
+- [x] **Parallel tool execution** - Read-only tools run concurrently (2-5x speedup)
 
 ### Short Term (Next)
-
-- [ ] **Parallel tool execution** - Execute independent tools concurrently (2-5x speedup)
 - [ ] **Git tools** - Built-in git status, diff, commit, push tools
 - [ ] **Diff display** - Show file changes before writing
 

@@ -18,14 +18,14 @@ import (
 
 // Config holds Slack bot configuration
 type Config struct {
-	BotToken    string // xoxb-...
-	AppToken    string // xapp-... (for Socket Mode)
-	GatewayURL  string // WebSocket URL for zen-claw gateway
-	DefaultDir  string // Default working directory
-	MaxSteps    int    // Max agent steps
-	Provider    string // Default AI provider
-	Model       string // Default AI model
-	Debug       bool   // Enable debug logging
+	BotToken   string // xoxb-...
+	AppToken   string // xapp-... (for Socket Mode)
+	GatewayURL string // WebSocket URL for zen-claw gateway
+	DefaultDir string // Default working directory
+	MaxSteps   int    // Max agent steps
+	Provider   string // Default AI provider
+	Model      string // Default AI model
+	Debug      bool   // Enable debug logging
 }
 
 // Bot represents the Slack bot
@@ -43,14 +43,14 @@ type Bot struct {
 
 // Session represents a conversation session tied to a Slack thread
 type Session struct {
-	ThreadTS    string    // Slack thread timestamp
-	ChannelID   string    // Slack channel ID
-	SessionID   string    // zen-claw session ID
-	WorkingDir  string    // Working directory
-	Provider    string    // AI provider
-	Model       string    // AI model
-	CreatedAt   time.Time
-	LastUsedAt  time.Time
+	ThreadTS     string // Slack thread timestamp
+	ChannelID    string // Slack channel ID
+	SessionID    string // zen-claw session ID
+	WorkingDir   string // Working directory
+	Provider     string // AI provider
+	Model        string // AI model
+	CreatedAt    time.Time
+	LastUsedAt   time.Time
 	MessageCount int
 }
 
@@ -261,7 +261,7 @@ func (b *Bot) handleMessage(ev *slackevents.MessageEvent) {
 
 	// Process as continuation of conversation
 	b.processAIRequest(ev.Channel, threadTS, ev.User, text)
-	
+
 	// Update session last used
 	if session != nil {
 		b.sessionsMu.Lock()
