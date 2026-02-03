@@ -10,16 +10,17 @@ import (
 )
 
 type Config struct {
-	Providers   ProvidersConfig   `yaml:"providers"`
-	Default     DefaultConfig     `yaml:"default"`
-	Workspace   WorkspaceConfig   `yaml:"workspace"`
-	Sessions    SessionsConfig    `yaml:"sessions"`
-	Consensus   ConsensusConfig   `yaml:"consensus"`
-	Factory     FactoryConfig     `yaml:"factory"`
-	Preferences PreferencesConfig `yaml:"preferences"`
-	Web         WebConfig         `yaml:"web"`
-	MCP         MCPConfig         `yaml:"mcp"`
-	Routing     RoutingConfig     `yaml:"routing"`
+	Providers        ProvidersConfig        `yaml:"providers"`
+	Default          DefaultConfig          `yaml:"default"`
+	Workspace        WorkspaceConfig        `yaml:"workspace"`
+	Sessions         SessionsConfig         `yaml:"sessions"`
+	Consensus        ConsensusConfig        `yaml:"consensus"`
+	Factory          FactoryConfig          `yaml:"factory"`
+	Preferences      PreferencesConfig      `yaml:"preferences"`
+	Web              WebConfig              `yaml:"web"`
+	MCP              MCPConfig              `yaml:"mcp"`
+	Routing          RoutingConfig          `yaml:"routing"`
+	CostOptimization CostOptimizationConfig `yaml:"cost_optimization"`
 }
 
 // MCPConfig configures Model Context Protocol servers
@@ -102,6 +103,28 @@ type RoutingConfig struct {
 	ContextTiers   ContextTiersConfig `yaml:"context_tiers"`   // Context size tiers
 	PremiumBudget  float64            `yaml:"premium_budget"`  // Daily budget for premium models (USD)
 	RequireConfirm bool               `yaml:"require_confirm"` // Require confirmation for premium tier
+}
+
+// CostOptimizationConfig configures token-saving features
+type CostOptimizationConfig struct {
+	// History management
+	MaxHistoryTurns    int `yaml:"max_history_turns"`    // Hard cap on messages (default 50)
+	MaxHistoryMessages int `yaml:"max_history_messages"` // Summarize beyond this (default 20)
+	KeepLastAssistants int `yaml:"keep_last_assistants"` // Keep last N assistant msgs intact (default 3)
+
+	// Tool output pruning
+	MaxToolResultTokens int                       `yaml:"max_tool_result_tokens"` // Default max tokens per tool result
+	ToolRules           map[string]ToolRuleConfig `yaml:"tool_rules"`             // Per-tool pruning rules
+
+	// Anthropic prompt caching (when using Anthropic provider)
+	AnthropicCacheRetention string `yaml:"anthropic_cache_retention"` // "none", "short" (5m), "long" (1h)
+}
+
+// ToolRuleConfig defines pruning rules for a specific tool
+type ToolRuleConfig struct {
+	MaxTokens  int  `yaml:"max_tokens"`  // Max tokens before truncation
+	KeepRecent int  `yaml:"keep_recent"` // Keep last N results untruncated
+	Aggressive bool `yaml:"aggressive"`  // Use aggressive truncation (head only)
 }
 
 // ContextTiersConfig defines context size thresholds
@@ -265,6 +288,17 @@ func NewDefaultConfig() *Config {
 			},
 			PremiumBudget:  5.0,  // $5/day for premium models
 			RequireConfirm: true, // Require confirmation for large context
+		},
+		CostOptimization: CostOptimizationConfig{
+			MaxHistoryTurns:         50,   // Hard cap at 50 messages
+			MaxHistoryMessages:      20,   // Summarize beyond 20
+			KeepLastAssistants:      3,    // Keep last 3 assistant msgs intact
+			MaxToolResultTokens:     8000, // Default ~32KB
+			AnthropicCacheRetention: "short", // 5-minute cache for Anthropic
+			ToolRules: map[string]ToolRuleConfig{
+				"exec":    {MaxTokens: 4000, KeepRecent: 1, Aggressive: true},
+				"process": {MaxTokens: 4000, KeepRecent: 1, Aggressive: true},
+			},
 		},
 	}
 }

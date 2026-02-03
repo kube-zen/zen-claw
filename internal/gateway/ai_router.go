@@ -98,7 +98,7 @@ func NewAIRouter(cfg *config.Config) *AIRouter {
 		semanticCache: NewSemanticCache(24*time.Hour, 500),
 		circuits:      circuitMgr,
 		usage:         cost.NewUsage(),
-		optimizer:     NewCostOptimizer(),
+		optimizer:     NewCostOptimizerWithConfig(&cfg.CostOptimization),
 		dedup:         NewRequestDeduplicator(5 * time.Second),
 	}
 }

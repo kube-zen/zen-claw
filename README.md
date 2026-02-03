@@ -279,7 +279,7 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed solutions.
 - [x] Guardrails (cost, time, file limits)
 - [x] Subagents (parallel background runs)
 - [x] Smart context routing (size-based tier selection)
-- [x] Cost optimizations (prompt compression, dedup, output limits)
+- [x] Cost optimizations (tool pruning, history limits, memory flush, dedup)
 
 ### Next
 

@@ -214,6 +214,43 @@ Sessions: 3
 2. **CLI** - Interactive mode is primary interface
 3. **SQLite** - ACID-compliant session persistence
 
+## Cost Optimization
+
+The gateway automatically optimizes token usage. Configure in `config.yaml`:
+
+```yaml
+cost_optimization:
+  # History limits
+  max_history_turns: 50      # Hard cap on messages (drop oldest)
+  max_history_messages: 20   # Summarize beyond this
+  keep_last_assistants: 3    # Keep last N assistant msgs intact
+
+  # Tool output pruning
+  max_tool_result_tokens: 8000
+  tool_rules:
+    exec:           # Shell output: prune aggressively
+      max_tokens: 4000
+      keep_recent: 1
+      aggressive: true
+    read_file:      # Code: keep more context
+      max_tokens: 12000
+      keep_recent: 2
+
+  # Anthropic prompt caching (when using Anthropic)
+  anthropic_cache_retention: "short"  # "none", "short" (5m), "long" (1h)
+```
+
+### What gets optimized:
+
+| Feature | Savings | How |
+|---------|---------|-----|
+| History turn limit | 20-40% | Drop messages beyond cap |
+| Tool-specific pruning | 15-30% | Aggressive for exec, gentle for code |
+| Memory flush | - | Extract decisions/TODOs before dropping |
+| Prompt compression | 5-15% | Remove whitespace, verbose phrases |
+| Request deduplication | Variable | Share results for identical requests |
+| Semantic caching | 10-30% | Cache similar queries |
+
 ## Troubleshooting
 
 ### Gateway Issues
