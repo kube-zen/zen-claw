@@ -231,6 +231,11 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 	fmt.Println("  /provider <name>    - Switch to a specific provider")
 	fmt.Println("  /models            - List models for current provider")
 	fmt.Println("  /model <name>      - Switch model within current provider")
+	fmt.Println("Preferences (view/edit AI routing):")
+	fmt.Println("  /prefs              - Show current AI preferences")
+	fmt.Println("  /prefs fallback     - Show/set provider fallback order")
+	fmt.Println("  /prefs consensus    - Show/set consensus workers and arbiter")
+	fmt.Println("  /prefs factory      - Show/set factory specialists")
 	fmt.Println("Other commands:")
 	fmt.Println("  /context-limit [n] - Set context limit (default 50, 0=unlimited)")
 	fmt.Println("  /exit, /quit       - Exit interactive mode")
@@ -450,6 +455,118 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 				sessionID = ""
 				fmt.Println("Create a new session with /new or switch with /switch <id>")
 			}
+			continue
+
+		// Preferences commands
+		case input == "/prefs" || input == "/preferences":
+			prefs, err := client.GetPreferences("all")
+			if err != nil {
+				fmt.Printf("❌ Error: %v\n", err)
+				continue
+			}
+			fmt.Println("\n⚙️ AI Preferences:")
+			fmt.Println(strings.Repeat("─", 60))
+			if def, ok := prefs["default"].(map[string]interface{}); ok {
+				fmt.Printf("Default: %v/%v\n", def["provider"], def["model"])
+			}
+			if fo, ok := prefs["fallback_order"].([]interface{}); ok {
+				fmt.Printf("Fallback order: %v\n", fo)
+			}
+			if cons, ok := prefs["consensus"].(map[string]interface{}); ok {
+				if arb, ok := cons["arbiter"].([]interface{}); ok {
+					fmt.Printf("Consensus arbiter: %v\n", arb)
+				}
+			}
+			fmt.Println(strings.Repeat("─", 60))
+			fmt.Println("Use /prefs fallback, /prefs consensus, /prefs factory for details")
+			continue
+
+		case strings.HasPrefix(input, "/prefs fallback"):
+			parts := strings.Fields(input)
+			if len(parts) == 2 {
+				// Just show current fallback order
+				prefs, err := client.GetPreferences("fallback")
+				if err != nil {
+					fmt.Printf("❌ Error: %v\n", err)
+					continue
+				}
+				fmt.Printf("Fallback order: %v\n", prefs["fallback_order"])
+				fmt.Println("To change: /prefs fallback deepseek,kimi,qwen,glm,minimax,openai")
+			} else {
+				// Set new fallback order
+				orderStr := strings.TrimPrefix(input, "/prefs fallback ")
+				order := strings.Split(orderStr, ",")
+				for i := range order {
+					order[i] = strings.TrimSpace(order[i])
+				}
+				updates := map[string]interface{}{"fallback_order": order}
+				if err := client.UpdatePreferences(updates); err != nil {
+					fmt.Printf("❌ Error: %v\n", err)
+				} else {
+					fmt.Printf("✓ Fallback order updated: %v\n", order)
+				}
+			}
+			continue
+
+		case strings.HasPrefix(input, "/prefs consensus"):
+			prefs, err := client.GetPreferences("consensus")
+			if err != nil {
+				fmt.Printf("❌ Error: %v\n", err)
+				continue
+			}
+			fmt.Println("\n🤝 Consensus Settings:")
+			fmt.Println(strings.Repeat("─", 60))
+			if arb, ok := prefs["arbiter"].([]interface{}); ok {
+				fmt.Printf("Arbiter preference: %v\n", arb)
+			}
+			if workers, ok := prefs["workers"].([]interface{}); ok {
+				fmt.Println("Workers:")
+				for _, w := range workers {
+					if wm, ok := w.(map[string]interface{}); ok {
+						fmt.Printf("  - %v/%v (%v)\n", wm["Provider"], wm["Model"], wm["Role"])
+					}
+				}
+			}
+			fmt.Println(strings.Repeat("─", 60))
+			fmt.Println("To change arbiter: /prefs arbiter kimi,qwen,deepseek")
+			continue
+
+		case strings.HasPrefix(input, "/prefs arbiter"):
+			parts := strings.Fields(input)
+			if len(parts) == 2 {
+				prefs, _ := client.GetPreferences("consensus")
+				fmt.Printf("Current arbiter order: %v\n", prefs["arbiter"])
+			} else {
+				orderStr := strings.TrimPrefix(input, "/prefs arbiter ")
+				order := strings.Split(orderStr, ",")
+				for i := range order {
+					order[i] = strings.TrimSpace(order[i])
+				}
+				updates := map[string]interface{}{"arbiter": order}
+				if err := client.UpdatePreferences(updates); err != nil {
+					fmt.Printf("❌ Error: %v\n", err)
+				} else {
+					fmt.Printf("✓ Arbiter order updated: %v\n", order)
+				}
+			}
+			continue
+
+		case strings.HasPrefix(input, "/prefs factory"):
+			prefs, err := client.GetPreferences("factory")
+			if err != nil {
+				fmt.Printf("❌ Error: %v\n", err)
+				continue
+			}
+			fmt.Println("\n🏭 Factory Specialists:")
+			fmt.Println(strings.Repeat("─", 60))
+			if specs, ok := prefs["specialists"].(map[string]interface{}); ok {
+				for domain, spec := range specs {
+					if sm, ok := spec.(map[string]interface{}); ok {
+						fmt.Printf("  %s: %v/%v\n", domain, sm["Provider"], sm["Model"])
+					}
+				}
+			}
+			fmt.Println(strings.Repeat("─", 60))
 			continue
 
 		case input == "/providers" || input == "/provider":

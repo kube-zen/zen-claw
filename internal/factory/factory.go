@@ -129,43 +129,69 @@ func NewFactory(cfg *config.Config) *Factory {
 	return &Factory{
 		cfg:             cfg,
 		providerFactory: providers.NewFactory(cfg),
-		specialists:     defaultSpecialists(),
-		guardrails:      defaultGuardrails(),
+		specialists:     loadSpecialistsFromConfig(cfg),
+		guardrails:      loadGuardrailsFromConfig(cfg),
 		updates:         make(chan MacroUpdate, 100),
 	}
 }
 
-// defaultSpecialists returns the default specialist configuration
-func defaultSpecialists() map[string]Specialist {
-	return map[string]Specialist{
-		"coordinator":    {Domain: "coordinator", Provider: "kimi", Model: "kimi-k2-5"},
-		"go":             {Domain: "go", Provider: "deepseek", Model: "deepseek-chat"},
-		"typescript":     {Domain: "typescript", Provider: "qwen", Model: "qwen3-coder-30b"},
-		"infrastructure": {Domain: "infrastructure", Provider: "minimax", Model: "minimax-M2.1"},
+// loadSpecialistsFromConfig loads specialists from config
+func loadSpecialistsFromConfig(cfg *config.Config) map[string]Specialist {
+	domains := []string{"coordinator", "go", "typescript", "infrastructure"}
+	specialists := make(map[string]Specialist)
+	
+	for _, domain := range domains {
+		spec := cfg.GetFactorySpecialist(domain)
+		specialists[domain] = Specialist{
+			Domain:   domain,
+			Provider: spec.Provider,
+			Model:    spec.Model,
+		}
 	}
+	return specialists
 }
 
-// defaultGuardrails returns safe default guardrails
-func defaultGuardrails() Guardrails {
+// loadGuardrailsFromConfig loads guardrails from config
+func loadGuardrailsFromConfig(cfg *config.Config) Guardrails {
+	g := cfg.Factory.Guardrails
+	
+	// Use config values or defaults
+	maxPhase := 10
+	if g.MaxPhaseDurationMins > 0 {
+		maxPhase = g.MaxPhaseDurationMins
+	}
+	maxTotal := 240
+	if g.MaxTotalDurationMins > 0 {
+		maxTotal = g.MaxTotalDurationMins
+	}
+	maxCostPhase := 0.50
+	if g.MaxCostPerPhase > 0 {
+		maxCostPhase = g.MaxCostPerPhase
+	}
+	maxCostTotal := 5.00
+	if g.MaxCostTotal > 0 {
+		maxCostTotal = g.MaxCostTotal
+	}
+	maxFiles := 50
+	if g.MaxFilesModified > 0 {
+		maxFiles = g.MaxFilesModified
+	}
+	forbidden := []string{"rm -rf /", "rm -rf ~", "drop database", "DROP DATABASE"}
+	if len(g.ForbiddenCommands) > 0 {
+		forbidden = g.ForbiddenCommands
+	}
+
 	return Guardrails{
-		MaxPhaseDuration:   10 * time.Minute,
-		MaxTotalDuration:   4 * time.Hour,
-		MaxCostPerPhase:    0.50,
-		MaxCostTotal:       5.00,
-		MaxFilesModified:   50,
+		MaxPhaseDuration:   time.Duration(maxPhase) * time.Minute,
+		MaxTotalDuration:   time.Duration(maxTotal) * time.Minute,
+		MaxCostPerPhase:    maxCostPhase,
+		MaxCostTotal:       maxCostTotal,
+		MaxFilesModified:   maxFiles,
 		MaxLinesChanged:    2000,
 		AllowedDirectories: []string{"."},
-		ForbiddenCommands: []string{
-			"rm -rf /",
-			"rm -rf ~",
-			"rm -rf /*",
-			"drop database",
-			"DROP DATABASE",
-			"truncate",
-			"TRUNCATE",
-		},
-		RequireTests:       false,
-		RequireCompilation: true,
+		ForbiddenCommands:  forbidden,
+		RequireTests:       g.RequireTests,
+		RequireCompilation: g.RequireCompilation,
 		RequireLinting:     false,
 	}
 }

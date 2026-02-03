@@ -122,8 +122,8 @@ func (r *AIRouter) getProviderChain(preferred string) []string {
 		}
 	}
 
-	// Cost-optimized fallback chain (cheapest first)
-	costOptimized := []string{"deepseek", "kimi", "glm", "minimax", "qwen", "openai"}
+	// Fallback chain from config (user-defined order)
+	costOptimized := r.config.GetFallbackOrder()
 
 	for _, provider := range costOptimized {
 		// Skip if already in chain or not available

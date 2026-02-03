@@ -1,10 +1,13 @@
 package agent
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )

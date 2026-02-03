@@ -260,6 +260,50 @@ func (gc *GatewayClient) DeleteSession(sessionID string) error {
 	return nil
 }
 
+// GetPreferences returns AI preferences
+func (gc *GatewayClient) GetPreferences(category string) (map[string]interface{}, error) {
+	url := fmt.Sprintf("%s/preferences/%s", gc.baseURL, category)
+
+	resp, err := gc.client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get preferences: %d", resp.StatusCode)
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// UpdatePreferences updates AI preferences
+func (gc *GatewayClient) UpdatePreferences(updates map[string]interface{}) error {
+	url := fmt.Sprintf("%s/preferences", gc.baseURL)
+
+	jsonBody, err := json.Marshal(updates)
+	if err != nil {
+		return err
+	}
+
+	resp, err := gc.client.Post(url, "application/json", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to update preferences: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
 // SendWithProgress sends a chat request with SSE streaming for progress
 func (gc *GatewayClient) SendWithProgress(req ChatRequest, onProgress func(ProgressEvent)) (*ChatResponse, error) {
 	url := fmt.Sprintf("%s/chat/stream", gc.baseURL)

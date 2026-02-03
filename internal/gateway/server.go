@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -39,6 +40,8 @@ func NewServer(cfg *config.Config) *Server {
 	mux.HandleFunc("/chat/stream", srv.streamChatHandler) // SSE streaming endpoint
 	mux.HandleFunc("/sessions", srv.sessionsHandler)
 	mux.HandleFunc("/sessions/", srv.sessionHandler)
+	mux.HandleFunc("/preferences", srv.preferencesHandler)
+	mux.HandleFunc("/preferences/", srv.preferencesHandler)
 	mux.HandleFunc("/", srv.defaultHandler)
 
 	srv.server = &http.Server{
@@ -448,6 +451,91 @@ func (s *Server) streamChatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// preferencesHandler handles AI preferences viewing and modification
+func (s *Server) preferencesHandler(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path[len("/preferences"):]
+	path = strings.TrimPrefix(path, "/")
+
+	switch r.Method {
+	case http.MethodGet:
+		// Return preferences based on path
+		prefs := make(map[string]interface{})
+
+		switch path {
+		case "", "all":
+			prefs["fallback_order"] = s.config.GetFallbackOrder()
+			prefs["consensus"] = map[string]interface{}{
+				"workers": s.config.GetConsensusWorkers(),
+				"arbiter": s.config.GetArbiterOrder(),
+			}
+			prefs["factory"] = map[string]interface{}{
+				"specialists": s.config.Factory.Specialists,
+				"guardrails":  s.config.Factory.Guardrails,
+			}
+			prefs["default"] = map[string]interface{}{
+				"provider": s.config.Default.Provider,
+				"model":    s.config.Default.Model,
+			}
+		case "fallback":
+			prefs["fallback_order"] = s.config.GetFallbackOrder()
+		case "consensus":
+			prefs["workers"] = s.config.GetConsensusWorkers()
+			prefs["arbiter"] = s.config.GetArbiterOrder()
+		case "factory":
+			prefs["specialists"] = s.config.Factory.Specialists
+			prefs["guardrails"] = s.config.Factory.Guardrails
+		default:
+			http.Error(w, "Unknown preference: "+path, http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(prefs)
+
+	case http.MethodPost, http.MethodPut:
+		// Update preferences
+		var update map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
+			http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Update fallback order
+		if fo, ok := update["fallback_order"].([]interface{}); ok {
+			order := make([]string, len(fo))
+			for i, v := range fo {
+				order[i] = v.(string)
+			}
+			s.config.Preferences.FallbackOrder = order
+		}
+
+		// Update default provider/model
+		if def, ok := update["default"].(map[string]interface{}); ok {
+			if p, ok := def["provider"].(string); ok {
+				s.config.Default.Provider = p
+			}
+			if m, ok := def["model"].(string); ok {
+				s.config.Default.Model = m
+			}
+		}
+
+		// Update consensus arbiter
+		if arb, ok := update["arbiter"].([]interface{}); ok {
+			order := make([]string, len(arb))
+			for i, v := range arb {
+				order[i] = v.(string)
+			}
+			s.config.Consensus.Arbiter = order
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 // defaultHandler shows available endpoints
 func (s *Server) defaultHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
@@ -463,4 +551,6 @@ func (s *Server) defaultHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "  DELETE /sessions/{id}           - Delete session\n")
 	fmt.Fprintf(w, "  POST /sessions/{id}/background  - Move session to background\n")
 	fmt.Fprintf(w, "  POST /sessions/{id}/activate    - Activate a session\n")
+	fmt.Fprintf(w, "  GET  /preferences               - View AI preferences\n")
+	fmt.Fprintf(w, "  POST /preferences               - Update AI preferences\n")
 }

@@ -10,14 +10,59 @@ import (
 )
 
 type Config struct {
-	Providers ProvidersConfig `yaml:"providers"`
-	Default   DefaultConfig   `yaml:"default"`
-	Workspace WorkspaceConfig `yaml:"workspace"`
-	Sessions  SessionsConfig  `yaml:"sessions"`
+	Providers  ProvidersConfig  `yaml:"providers"`
+	Default    DefaultConfig    `yaml:"default"`
+	Workspace  WorkspaceConfig  `yaml:"workspace"`
+	Sessions   SessionsConfig   `yaml:"sessions"`
+	Consensus  ConsensusConfig  `yaml:"consensus"`
+	Factory    FactoryConfig    `yaml:"factory"`
+	Preferences PreferencesConfig `yaml:"preferences"`
 }
 
 type SessionsConfig struct {
 	MaxSessions int `yaml:"max_sessions"` // Maximum concurrent sessions (default 5)
+}
+
+// ConsensusConfig configures the consensus engine
+type ConsensusConfig struct {
+	Workers []WorkerConfig `yaml:"workers"` // Worker definitions for parallel calls
+	Arbiter []string       `yaml:"arbiter"` // Arbiter preference order (first available used)
+}
+
+// WorkerConfig defines a consensus worker
+type WorkerConfig struct {
+	Provider string `yaml:"provider"`
+	Model    string `yaml:"model"`
+	Role     string `yaml:"role"` // e.g., "systems_thinker", "implementation_realist"
+}
+
+// FactoryConfig configures the factory mode specialists
+type FactoryConfig struct {
+	Specialists map[string]SpecialistConfig `yaml:"specialists"` // domain -> specialist
+	Guardrails  GuardrailsConfig            `yaml:"guardrails"`
+}
+
+// SpecialistConfig defines a factory specialist
+type SpecialistConfig struct {
+	Provider string `yaml:"provider"`
+	Model    string `yaml:"model"`
+}
+
+// GuardrailsConfig defines factory safety limits
+type GuardrailsConfig struct {
+	MaxPhaseDurationMins int      `yaml:"max_phase_duration_mins"`
+	MaxTotalDurationMins int      `yaml:"max_total_duration_mins"`
+	MaxCostPerPhase      float64  `yaml:"max_cost_per_phase"`
+	MaxCostTotal         float64  `yaml:"max_cost_total"`
+	MaxFilesModified     int      `yaml:"max_files_modified"`
+	RequireTests         bool     `yaml:"require_tests"`
+	RequireCompilation   bool     `yaml:"require_compilation"`
+	ForbiddenCommands    []string `yaml:"forbidden_commands"`
+}
+
+// PreferencesConfig configures AI routing preferences
+type PreferencesConfig struct {
+	FallbackOrder []string `yaml:"fallback_order"` // Provider fallback order for routing
 }
 
 type ProvidersConfig struct {
@@ -122,9 +167,76 @@ func NewDefaultConfig() *Config {
 			Path: workspace,
 		},
 		Sessions: SessionsConfig{
-			MaxSessions: 5, // Default max concurrent sessions
+			MaxSessions: 5,
+		},
+		Consensus: ConsensusConfig{
+			Workers: []WorkerConfig{
+				{Provider: "deepseek", Model: "deepseek-chat", Role: "systems_thinker"},
+				{Provider: "qwen", Model: "qwen3-coder-30b", Role: "implementation_realist"},
+				{Provider: "minimax", Model: "minimax-M2.1", Role: "edge_case_hunter"},
+			},
+			Arbiter: []string{"kimi", "qwen", "deepseek"},
+		},
+		Factory: FactoryConfig{
+			Specialists: map[string]SpecialistConfig{
+				"coordinator":    {Provider: "kimi", Model: "kimi-k2-5"},
+				"go":             {Provider: "deepseek", Model: "deepseek-chat"},
+				"typescript":     {Provider: "qwen", Model: "qwen3-coder-30b"},
+				"infrastructure": {Provider: "minimax", Model: "minimax-M2.1"},
+			},
+			Guardrails: GuardrailsConfig{
+				MaxPhaseDurationMins: 10,
+				MaxTotalDurationMins: 240,
+				MaxCostPerPhase:      0.50,
+				MaxCostTotal:         5.00,
+				MaxFilesModified:     50,
+				RequireTests:         false,
+				RequireCompilation:   true,
+				ForbiddenCommands:    []string{"rm -rf /", "rm -rf ~", "drop database", "DROP DATABASE"},
+			},
+		},
+		Preferences: PreferencesConfig{
+			FallbackOrder: []string{"deepseek", "kimi", "glm", "minimax", "qwen", "openai"},
 		},
 	}
+}
+
+// GetConsensusWorkers returns consensus workers (from config or defaults)
+func (c *Config) GetConsensusWorkers() []WorkerConfig {
+	if len(c.Consensus.Workers) > 0 {
+		return c.Consensus.Workers
+	}
+	return NewDefaultConfig().Consensus.Workers
+}
+
+// GetArbiterOrder returns arbiter preference order
+func (c *Config) GetArbiterOrder() []string {
+	if len(c.Consensus.Arbiter) > 0 {
+		return c.Consensus.Arbiter
+	}
+	return NewDefaultConfig().Consensus.Arbiter
+}
+
+// GetFactorySpecialist returns specialist config for a domain
+func (c *Config) GetFactorySpecialist(domain string) SpecialistConfig {
+	if c.Factory.Specialists != nil {
+		if spec, ok := c.Factory.Specialists[domain]; ok {
+			return spec
+		}
+	}
+	defaults := NewDefaultConfig().Factory.Specialists
+	if spec, ok := defaults[domain]; ok {
+		return spec
+	}
+	return SpecialistConfig{Provider: "deepseek", Model: "deepseek-chat"}
+}
+
+// GetFallbackOrder returns provider fallback order
+func (c *Config) GetFallbackOrder() []string {
+	if len(c.Preferences.FallbackOrder) > 0 {
+		return c.Preferences.FallbackOrder
+	}
+	return NewDefaultConfig().Preferences.FallbackOrder
 }
 
 // GetMaxSessions returns the max sessions limit (defaults to 5)

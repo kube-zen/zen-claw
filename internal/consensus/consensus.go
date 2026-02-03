@@ -64,17 +64,18 @@ func NewEngine(cfg *config.Config) *Engine {
 	}
 }
 
-// DefaultWorkers returns the default 3-worker configuration
-// Using diverse models for better consensus:
-// - DeepSeek: Fast, cost-effective, good systems thinking
-// - Qwen: Large context, coding-focused
-// - MiniMax: Different perspective, 1M context capability
+// DefaultWorkers returns the worker configuration from config
 func (e *Engine) DefaultWorkers() []Worker {
-	return []Worker{
-		{Provider: "deepseek", Model: "deepseek-chat", Role: "systems_thinker"},
-		{Provider: "qwen", Model: "qwen3-coder-30b", Role: "implementation_realist"},
-		{Provider: "minimax", Model: "minimax-M2.1", Role: "edge_case_hunter"},
+	workers := e.cfg.GetConsensusWorkers()
+	result := make([]Worker, len(workers))
+	for i, w := range workers {
+		result[i] = Worker{
+			Provider: w.Provider,
+			Model:    w.Model,
+			Role:     w.Role,
+		}
 	}
+	return result
 }
 
 // GetAvailableWorkers returns workers for which we have API keys
@@ -278,8 +279,8 @@ func (e *Engine) callWorkersParallel(ctx context.Context, workers []Worker, prom
 
 // synthesizeWithArbiter uses an arbiter model to synthesize worker responses
 func (e *Engine) synthesizeWithArbiter(ctx context.Context, req ConsensusRequest, results []WorkerResult) (string, string, error) {
-	// Choose arbiter: prefer Kimi (best for synthesis), then Qwen, then DeepSeek
-	arbiterOrder := []string{"kimi", "qwen", "deepseek"}
+	// Choose arbiter based on config preference order
+	arbiterOrder := e.cfg.GetArbiterOrder()
 	var arbiter ai.Provider
 	var arbiterName string
 

@@ -177,8 +177,14 @@ func (s *SessionStore) SaveSession(session *agent.Session) error {
 	s.sessionsMu.Lock()
 	info, exists := s.sessions[session.ID]
 	if !exists {
-		// New session - check if we can create it
-		if s.GetActiveSessionCount() >= s.maxSessions {
+		// New session - check if we can create it (count inline to avoid deadlock)
+		activeCount := 0
+		for _, info := range s.sessions {
+			if info.State == SessionStateActive || info.State == SessionStateBackground {
+				activeCount++
+			}
+		}
+		if activeCount >= s.maxSessions {
 			s.sessionsMu.Unlock()
 			return fmt.Errorf("max sessions limit reached (%d), background or close a session first", s.maxSessions)
 		}
