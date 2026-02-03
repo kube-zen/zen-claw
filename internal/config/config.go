@@ -19,6 +19,7 @@ type Config struct {
 	Preferences PreferencesConfig `yaml:"preferences"`
 	Web         WebConfig         `yaml:"web"`
 	MCP         MCPConfig         `yaml:"mcp"`
+	Routing     RoutingConfig     `yaml:"routing"`
 }
 
 // MCPConfig configures Model Context Protocol servers
@@ -93,6 +94,33 @@ type GuardrailsConfig struct {
 // PreferencesConfig configures AI routing preferences
 type PreferencesConfig struct {
 	FallbackOrder []string `yaml:"fallback_order"` // Provider fallback order for routing
+}
+
+// RoutingConfig configures context-aware smart routing
+type RoutingConfig struct {
+	SmartRouting    bool              `yaml:"smart_routing"`     // Enable context-aware routing (default true)
+	ContextTiers    ContextTiersConfig `yaml:"context_tiers"`    // Context size tiers
+	PremiumBudget   float64           `yaml:"premium_budget"`    // Daily budget for premium models (USD)
+	RequireConfirm  bool              `yaml:"require_confirm"`   // Require confirmation for premium tier
+}
+
+// ContextTiersConfig defines context size thresholds
+type ContextTiersConfig struct {
+	SmallMax  int `yaml:"small_max"`  // Max tokens for "small" tier (default 32000)
+	MediumMax int `yaml:"medium_max"` // Max tokens for "medium" tier (default 200000)
+	// Anything above MediumMax goes to "large" tier (premium models)
+}
+
+// ProviderContextInfo holds known context window sizes (tokens)
+var ProviderContextInfo = map[string]int{
+	"deepseek": 128000,  // 128K - cost-effective workhorse
+	"qwen":     262000,  // 262K - large context, good balance
+	"kimi":     200000,  // 200K - K2.5 context
+	"glm":      128000,  // 128K
+	"minimax":  4000000, // 4M - massive context (premium)
+	"openai":   128000,  // GPT-4o: 128K (GPT-4.1 would be 1M+)
+	"gemini":   1000000, // Gemini 2.5 Pro: 1M (premium)
+	"claude":   200000,  // Claude Sonnet: 200K
 }
 
 type ProvidersConfig struct {
