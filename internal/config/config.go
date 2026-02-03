@@ -48,7 +48,8 @@ type WebSearchConfig struct {
 }
 
 type SessionsConfig struct {
-	MaxSessions int `yaml:"max_sessions"` // Maximum concurrent sessions (default 5)
+	MaxSessions int    `yaml:"max_sessions"` // Maximum concurrent sessions (default 5)
+	DBPath      string `yaml:"db_path"`      // Path to session database (default ~/.zen/zen-claw/data/sessions.db)
 }
 
 // ConsensusConfig configures the consensus engine
@@ -274,6 +275,11 @@ func (c *Config) GetMaxSessions() int {
 		return 5
 	}
 	return c.Sessions.MaxSessions
+}
+
+// GetSessionDBPath returns the session database path
+func (c *Config) GetSessionDBPath() string {
+	return c.Sessions.DBPath // Empty means use default
 }
 
 // GetAPIKey returns the API key for a provider from config or environment

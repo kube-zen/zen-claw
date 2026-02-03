@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/neves/zen-claw/internal/agent"
 	"github.com/neves/zen-claw/internal/ai"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // SessionState tracks whether a session is active or backgrounded
@@ -30,56 +33,112 @@ type SessionInfo struct {
 	LastUsed time.Time // Last time this session was interacted with
 }
 
-// SessionStore manages persistent session storage
+// SessionStore manages persistent session storage with SQLite
 type SessionStore struct {
-	config      *SessionStoreConfig
-	sessions    map[string]*SessionInfo
+	db          *sql.DB
+	dbPath      string
+	sessions    map[string]*SessionInfo // In-memory cache
 	sessionsMu  sync.RWMutex
 	maxSessions int
 }
 
 // SessionStoreConfig configuration for session store
 type SessionStoreConfig struct {
-	DataDir     string
-	MaxSessions int // Maximum concurrent sessions (0 = unlimited)
+	DBPath      string // Path to SQLite database file
+	MaxSessions int    // Maximum concurrent sessions (0 = unlimited)
 }
 
-// NewSessionStore creates a new session store
+// DefaultSessionDBPath returns the default database path
+func DefaultSessionDBPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "/tmp"
+	}
+	return filepath.Join(home, ".zen", "zen-claw", "data", "sessions.db")
+}
+
+// NewSessionStore creates a new session store with SQLite backend
 func NewSessionStore(cfg *SessionStoreConfig) (*SessionStore, error) {
-	if cfg.DataDir == "" {
-		cfg.DataDir = "/tmp/zen-claw-sessions"
+	if cfg.DBPath == "" {
+		cfg.DBPath = DefaultSessionDBPath()
 	}
 	if cfg.MaxSessions <= 0 {
-		cfg.MaxSessions = 5 // Default max sessions
+		cfg.MaxSessions = 5
 	}
 
-	// Create data directory if it doesn't exist
-	if err := os.MkdirAll(cfg.DataDir, 0755); err != nil {
-		return nil, fmt.Errorf("create session data directory: %w", err)
+	// Create directory if needed
+	dir := filepath.Dir(cfg.DBPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("create data directory: %w", err)
+	}
+
+	// Open SQLite database with WAL mode for better concurrency and crash safety
+	db, err := sql.Open("sqlite3", cfg.DBPath+"?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000")
+	if err != nil {
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+
+	// Create tables
+	if err := createTables(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("create tables: %w", err)
 	}
 
 	store := &SessionStore{
-		config:      cfg,
+		db:          db,
+		dbPath:      cfg.DBPath,
 		sessions:    make(map[string]*SessionInfo),
 		maxSessions: cfg.MaxSessions,
 	}
 
-	// Migrate old sessions from /tmp if needed
-	if cfg.DataDir != "/tmp/zen-claw-sessions" {
-		if err := store.migrateOldSessions(); err != nil {
-			log.Printf("Warning: Failed to migrate old sessions: %v", err)
-		}
-	}
-
-	// Load existing sessions
+	// Load existing sessions into memory
 	if err := store.loadSessions(); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("load sessions: %w", err)
 	}
 
+	log.Printf("[SessionStore] Initialized with SQLite at %s", cfg.DBPath)
 	return store, nil
 }
 
-// GetSession gets a session by ID
+func createTables(db *sql.DB) error {
+	schema := `
+	CREATE TABLE IF NOT EXISTS sessions (
+		id TEXT PRIMARY KEY,
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL,
+		working_dir TEXT,
+		message_count INTEGER DEFAULT 0
+	);
+
+	CREATE TABLE IF NOT EXISTS messages (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id TEXT NOT NULL,
+		seq INTEGER NOT NULL,
+		role TEXT NOT NULL,
+		content TEXT NOT NULL,
+		tool_calls TEXT,
+		tool_call_id TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+		UNIQUE(session_id, seq)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, seq);
+	`
+	_, err := db.Exec(schema)
+	return err
+}
+
+// Close closes the database connection
+func (s *SessionStore) Close() error {
+	if s.db != nil {
+		return s.db.Close()
+	}
+	return nil
+}
+
+// GetSession gets a session by ID (from memory cache)
 func (s *SessionStore) GetSession(sessionID string) (*agent.Session, bool) {
 	s.sessionsMu.RLock()
 	defer s.sessionsMu.RUnlock()
@@ -100,92 +159,14 @@ func (s *SessionStore) GetSessionInfo(sessionID string) (*SessionInfo, bool) {
 	return info, exists
 }
 
-// SetSessionState updates the state of a session
-func (s *SessionStore) SetSessionState(sessionID string, state SessionState, clientID string) error {
-	s.sessionsMu.Lock()
-	defer s.sessionsMu.Unlock()
-
-	info, exists := s.sessions[sessionID]
-	if !exists {
-		return fmt.Errorf("session %s not found", sessionID)
-	}
-
-	info.State = state
-	info.ClientID = clientID
-	info.LastUsed = time.Now()
-	return nil
-}
-
-// GetActiveSessions returns all sessions that are active or background (not idle)
-func (s *SessionStore) GetActiveSessions() []*SessionInfo {
-	s.sessionsMu.RLock()
-	defer s.sessionsMu.RUnlock()
-
-	var active []*SessionInfo
-	for _, info := range s.sessions {
-		if info.State == SessionStateActive || info.State == SessionStateBackground {
-			active = append(active, info)
-		}
-	}
-	return active
-}
-
-// GetActiveSessionCount returns the count of active/background sessions
-func (s *SessionStore) GetActiveSessionCount() int {
-	s.sessionsMu.RLock()
-	defer s.sessionsMu.RUnlock()
-
-	count := 0
-	for _, info := range s.sessions {
-		if info.State == SessionStateActive || info.State == SessionStateBackground {
-			count++
-		}
-	}
-	return count
-}
-
-// CanCreateSession checks if a new session can be created (within max limit)
-func (s *SessionStore) CanCreateSession() bool {
-	return s.GetActiveSessionCount() < s.maxSessions
-}
-
-// GetMaxSessions returns the max sessions limit
-func (s *SessionStore) GetMaxSessions() int {
-	return s.maxSessions
-}
-
-// BackgroundSession moves a session to background state
-func (s *SessionStore) BackgroundSession(sessionID string) error {
-	return s.SetSessionState(sessionID, SessionStateBackground, "")
-}
-
-// ActivateSession activates a session for a client
-func (s *SessionStore) ActivateSession(sessionID, clientID string) error {
-	s.sessionsMu.Lock()
-	defer s.sessionsMu.Unlock()
-
-	info, exists := s.sessions[sessionID]
-	if !exists {
-		return fmt.Errorf("session %s not found", sessionID)
-	}
-
-	// Check if session is already active for another client
-	if info.State == SessionStateActive && info.ClientID != "" && info.ClientID != clientID {
-		return fmt.Errorf("session %s is active for another client", sessionID)
-	}
-
-	info.State = SessionStateActive
-	info.ClientID = clientID
-	info.LastUsed = time.Now()
-	return nil
-}
-
-// SaveSession saves a session to disk
+// SaveSession saves a session to SQLite
 func (s *SessionStore) SaveSession(session *agent.Session) error {
 	s.sessionsMu.Lock()
-	info, exists := s.sessions[session.ID]
+	defer s.sessionsMu.Unlock()
+
+	// Check if new session and at limit
+	_, exists := s.sessions[session.ID]
 	if !exists {
-		// New session - check if we can create it (count inline to avoid deadlock)
 		activeCount := 0
 		for _, info := range s.sessions {
 			if info.State == SessionStateActive || info.State == SessionStateBackground {
@@ -193,55 +174,77 @@ func (s *SessionStore) SaveSession(session *agent.Session) error {
 			}
 		}
 		if activeCount >= s.maxSessions {
-			s.sessionsMu.Unlock()
-			return fmt.Errorf("max sessions limit reached (%d), background or close a session first", s.maxSessions)
+			return fmt.Errorf("max sessions limit reached (%d)", s.maxSessions)
 		}
-		info = &SessionInfo{
+	}
+
+	// Start transaction
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	now := time.Now()
+	stats := session.GetStats()
+	messages := session.GetMessages()
+
+	// Upsert session
+	_, err = tx.Exec(`
+		INSERT INTO sessions (id, created_at, updated_at, working_dir, message_count)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			updated_at = excluded.updated_at,
+			working_dir = excluded.working_dir,
+			message_count = excluded.message_count
+	`, session.ID, stats.CreatedAt, now, stats.WorkingDir, len(messages))
+	if err != nil {
+		return fmt.Errorf("save session: %w", err)
+	}
+
+	// Delete old messages and insert new ones
+	_, err = tx.Exec("DELETE FROM messages WHERE session_id = ?", session.ID)
+	if err != nil {
+		return fmt.Errorf("delete messages: %w", err)
+	}
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO messages (session_id, seq, role, content, tool_calls, tool_call_id)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("prepare insert: %w", err)
+	}
+	defer stmt.Close()
+
+	for i, msg := range messages {
+		var toolCallsJSON []byte
+		if len(msg.ToolCalls) > 0 {
+			toolCallsJSON, _ = json.Marshal(msg.ToolCalls)
+		}
+		_, err = stmt.Exec(session.ID, i, msg.Role, msg.Content, toolCallsJSON, msg.ToolCallID)
+		if err != nil {
+			return fmt.Errorf("insert message %d: %w", i, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+
+	// Update in-memory cache
+	if !exists {
+		s.sessions[session.ID] = &SessionInfo{
 			Session:  session,
 			State:    SessionStateActive,
-			LastUsed: time.Now(),
+			LastUsed: now,
 		}
-		s.sessions[session.ID] = info
 	} else {
-		info.Session = session
-		info.LastUsed = time.Now()
-	}
-	s.sessionsMu.Unlock()
-
-	return s.persistSession(session)
-}
-
-// CreateSession creates a new session if within limits
-func (s *SessionStore) CreateSession(sessionID string) (*agent.Session, error) {
-	s.sessionsMu.Lock()
-	defer s.sessionsMu.Unlock()
-
-	// Check existing
-	if info, exists := s.sessions[sessionID]; exists {
-		info.LastUsed = time.Now()
-		return info.Session, nil
+		s.sessions[session.ID].Session = session
+		s.sessions[session.ID].LastUsed = now
 	}
 
-	// Check limit
-	activeCount := 0
-	for _, info := range s.sessions {
-		if info.State == SessionStateActive || info.State == SessionStateBackground {
-			activeCount++
-		}
-	}
-	if activeCount >= s.maxSessions {
-		return nil, fmt.Errorf("max sessions limit reached (%d/%d), use /sessions to manage", activeCount, s.maxSessions)
-	}
-
-	// Create new session
-	session := agent.NewSession(sessionID)
-	s.sessions[sessionID] = &SessionInfo{
-		Session:  session,
-		State:    SessionStateActive,
-		LastUsed: time.Now(),
-	}
-
-	return session, nil
+	return nil
 }
 
 // DeleteSession deletes a session
@@ -249,19 +252,19 @@ func (s *SessionStore) DeleteSession(sessionID string) bool {
 	s.sessionsMu.Lock()
 	defer s.sessionsMu.Unlock()
 
-	if _, exists := s.sessions[sessionID]; exists {
-		delete(s.sessions, sessionID)
-
-		// Delete from disk
-		filePath := filepath.Join(s.config.DataDir, sessionID+".json")
-		os.Remove(filePath)
-
-		return true
+	// Delete from DB (cascade deletes messages)
+	_, err := s.db.Exec("DELETE FROM sessions WHERE id = ?", sessionID)
+	if err != nil {
+		log.Printf("[SessionStore] Delete error: %v", err)
+		return false
 	}
-	return false
+
+	// Remove from memory
+	delete(s.sessions, sessionID)
+	return true
 }
 
-// ListSessions returns all sessions
+// ListSessions returns all session stats
 func (s *SessionStore) ListSessions() []agent.SessionStats {
 	s.sessionsMu.RLock()
 	defer s.sessionsMu.RUnlock()
@@ -273,7 +276,15 @@ func (s *SessionStore) ListSessions() []agent.SessionStats {
 	return stats
 }
 
-// ListSessionsWithState returns all sessions with their state info
+// SessionListEntry contains session stats with state info
+type SessionListEntry struct {
+	Stats    agent.SessionStats
+	State    SessionState
+	ClientID string
+	LastUsed time.Time
+}
+
+// ListSessionsWithState returns all sessions with state
 func (s *SessionStore) ListSessionsWithState() []SessionListEntry {
 	s.sessionsMu.RLock()
 	defer s.sessionsMu.RUnlock()
@@ -290,152 +301,255 @@ func (s *SessionStore) ListSessionsWithState() []SessionListEntry {
 	return entries
 }
 
-// SessionListEntry contains session stats with state info
-type SessionListEntry struct {
-	Stats    agent.SessionStats
-	State    SessionState
-	ClientID string
-	LastUsed time.Time
+// GetActiveSessions returns active sessions
+func (s *SessionStore) GetActiveSessions() []*SessionInfo {
+	s.sessionsMu.RLock()
+	defer s.sessionsMu.RUnlock()
+
+	var active []*SessionInfo
+	for _, info := range s.sessions {
+		if info.State == SessionStateActive {
+			active = append(active, info)
+		}
+	}
+	return active
 }
 
-// persistSession saves a single session to disk
-func (s *SessionStore) persistSession(session *agent.Session) error {
-	filePath := filepath.Join(s.config.DataDir, session.ID+".json")
+// GetActiveSessionCount returns count of active sessions
+func (s *SessionStore) GetActiveSessionCount() int {
+	s.sessionsMu.RLock()
+	defer s.sessionsMu.RUnlock()
 
-	// Create session data for persistence
-	sessionData := PersistedSession{
-		ID:         session.ID,
-		CreatedAt:  session.GetStats().CreatedAt,
-		UpdatedAt:  time.Now(),
-		Messages:   session.GetMessages(),
-		WorkingDir: session.GetStats().WorkingDir,
+	count := 0
+	for _, info := range s.sessions {
+		if info.State == SessionStateActive || info.State == SessionStateBackground {
+			count++
+		}
+	}
+	return count
+}
+
+// CanCreateSession checks if a new session can be created
+func (s *SessionStore) CanCreateSession() bool {
+	return s.GetActiveSessionCount() < s.maxSessions
+}
+
+// GetMaxSessions returns the max sessions limit
+func (s *SessionStore) GetMaxSessions() int {
+	return s.maxSessions
+}
+
+// BackgroundSession moves a session to background
+func (s *SessionStore) BackgroundSession(sessionID string) error {
+	return s.SetSessionState(sessionID, SessionStateBackground, "")
+}
+
+// ActivateSession activates a session for a client
+func (s *SessionStore) ActivateSession(sessionID, clientID string) error {
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+
+	info, exists := s.sessions[sessionID]
+	if !exists {
+		return fmt.Errorf("session %s not found", sessionID)
 	}
 
-	data, err := json.MarshalIndent(sessionData, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal session: %w", err)
+	if info.State == SessionStateActive && info.ClientID != "" && info.ClientID != clientID {
+		return fmt.Errorf("session %s is active for another client", sessionID)
 	}
 
-	// Write to temp file first, then rename (atomic write)
-	tmpPath := filePath + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
-		return fmt.Errorf("write session file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, filePath); err != nil {
-		return fmt.Errorf("rename session file: %w", err)
-	}
-
+	info.State = SessionStateActive
+	info.ClientID = clientID
+	info.LastUsed = time.Now()
 	return nil
 }
 
-// migrateOldSessions migrates sessions from old /tmp location to new location
-func (s *SessionStore) migrateOldSessions() error {
-	oldDir := "/tmp/zen-claw-sessions"
-	
-	// Check if old directory exists
-	if _, err := os.Stat(oldDir); os.IsNotExist(err) {
-		return nil // Nothing to migrate
+// SetSessionState updates session state
+func (s *SessionStore) SetSessionState(sessionID string, state SessionState, clientID string) error {
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+
+	info, exists := s.sessions[sessionID]
+	if !exists {
+		return fmt.Errorf("session %s not found", sessionID)
 	}
-	
-	// Read old sessions
-	entries, err := os.ReadDir(oldDir)
-	if err != nil {
-		return fmt.Errorf("read old sessions directory: %w", err)
-	}
-	
-	migrated := 0
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
-			continue
-		}
-		
-		oldPath := filepath.Join(oldDir, entry.Name())
-		newPath := filepath.Join(s.config.DataDir, entry.Name())
-		
-		// Check if already exists in new location
-		if _, err := os.Stat(newPath); err == nil {
-			continue // Already migrated
-		}
-		
-		// Copy file
-		data, err := os.ReadFile(oldPath)
-		if err != nil {
-			log.Printf("Warning: Failed to read old session %s: %v", entry.Name(), err)
-			continue
-		}
-		
-		// Write to new location (atomic write)
-		tmpPath := newPath + ".tmp"
-		if err := os.WriteFile(tmpPath, data, 0644); err != nil {
-			log.Printf("Warning: Failed to write new session %s: %v", entry.Name(), err)
-			continue
-		}
-		
-		if err := os.Rename(tmpPath, newPath); err != nil {
-			log.Printf("Warning: Failed to rename session %s: %v", entry.Name(), err)
-			continue
-		}
-		
-		migrated++
-		log.Printf("Migrated session: %s", entry.Name())
-	}
-	
-	if migrated > 0 {
-		log.Printf("Successfully migrated %d sessions from %s to %s", migrated, oldDir, s.config.DataDir)
-	}
-	
+
+	info.State = state
+	info.ClientID = clientID
+	info.LastUsed = time.Now()
 	return nil
 }
 
-// loadSessions loads all sessions from disk
+// CreateSession creates a new session
+func (s *SessionStore) CreateSession(sessionID string) (*agent.Session, error) {
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+
+	// Return existing
+	if info, exists := s.sessions[sessionID]; exists {
+		info.LastUsed = time.Now()
+		return info.Session, nil
+	}
+
+	// Check limit
+	activeCount := 0
+	for _, info := range s.sessions {
+		if info.State == SessionStateActive || info.State == SessionStateBackground {
+			activeCount++
+		}
+	}
+	if activeCount >= s.maxSessions {
+		return nil, fmt.Errorf("max sessions limit reached (%d)", s.maxSessions)
+	}
+
+	// Create new
+	session := agent.NewSession(sessionID)
+	s.sessions[sessionID] = &SessionInfo{
+		Session:  session,
+		State:    SessionStateActive,
+		LastUsed: time.Now(),
+	}
+
+	return session, nil
+}
+
+// loadSessions loads all sessions from SQLite into memory
 func (s *SessionStore) loadSessions() error {
-	entries, err := os.ReadDir(s.config.DataDir)
+	rows, err := s.db.Query(`
+		SELECT id, created_at, updated_at, working_dir 
+		FROM sessions 
+		ORDER BY updated_at DESC
+	`)
 	if err != nil {
-		// Directory might not exist yet
-		return nil
+		return err
 	}
+	defer rows.Close()
 
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+	for rows.Next() {
+		var id, workingDir string
+		var createdAt, updatedAt time.Time
+		if err := rows.Scan(&id, &createdAt, &updatedAt, &workingDir); err != nil {
 			continue
 		}
 
-		filePath := filepath.Join(s.config.DataDir, entry.Name())
-		data, err := os.ReadFile(filePath)
+		// Load messages for this session
+		session := agent.NewSession(id)
+		if workingDir != "" {
+			session.SetWorkingDir(workingDir)
+		}
+
+		msgRows, err := s.db.Query(`
+			SELECT role, content, tool_calls, tool_call_id
+			FROM messages
+			WHERE session_id = ?
+			ORDER BY seq
+		`, id)
 		if err != nil {
-			continue // Skip corrupted files
+			continue
 		}
 
-		var persisted PersistedSession
-		if err := json.Unmarshal(data, &persisted); err != nil {
-			continue // Skip invalid JSON
-		}
+		for msgRows.Next() {
+			var role, content string
+			var toolCallsJSON sql.NullString
+			var toolCallID sql.NullString
 
-		// Create session from persisted data
-		session := agent.NewSession(persisted.ID)
-		for _, msg := range persisted.Messages {
+			if err := msgRows.Scan(&role, &content, &toolCallsJSON, &toolCallID); err != nil {
+				continue
+			}
+
+			msg := ai.Message{
+				Role:    role,
+				Content: content,
+			}
+			if toolCallID.Valid {
+				msg.ToolCallID = toolCallID.String
+			}
+			if toolCallsJSON.Valid && toolCallsJSON.String != "" {
+				json.Unmarshal([]byte(toolCallsJSON.String), &msg.ToolCalls)
+			}
 			session.AddMessage(msg)
 		}
-		if persisted.WorkingDir != "" {
-			session.SetWorkingDir(persisted.WorkingDir)
-		}
+		msgRows.Close()
 
-		// Loaded sessions start as idle (not actively running)
-		s.sessions[persisted.ID] = &SessionInfo{
+		s.sessions[id] = &SessionInfo{
 			Session:  session,
 			State:    SessionStateIdle,
-			LastUsed: persisted.UpdatedAt,
+			LastUsed: updatedAt,
 		}
 	}
 
+	log.Printf("[SessionStore] Loaded %d sessions", len(s.sessions))
 	return nil
 }
-// PersistedSession represents a session saved to disk
-type PersistedSession struct {
-	ID         string       `json:"id"`
-	CreatedAt  time.Time    `json:"created_at"`
-	UpdatedAt  time.Time    `json:"updated_at"`
-	Messages   []ai.Message `json:"messages"`
-	WorkingDir string       `json:"working_dir,omitempty"`
+
+// CleanAllSessions deletes all sessions (for CLI clean command)
+func (s *SessionStore) CleanAllSessions() (int, error) {
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+
+	count := len(s.sessions)
+
+	// Delete from DB
+	_, err := s.db.Exec("DELETE FROM messages")
+	if err != nil {
+		return 0, err
+	}
+	_, err = s.db.Exec("DELETE FROM sessions")
+	if err != nil {
+		return 0, err
+	}
+
+	// Vacuum to reclaim space
+	_, _ = s.db.Exec("VACUUM")
+
+	// Clear memory
+	s.sessions = make(map[string]*SessionInfo)
+
+	return count, nil
+}
+
+// CleanOldSessions deletes sessions older than the given duration
+func (s *SessionStore) CleanOldSessions(olderThan time.Duration) (int, error) {
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+
+	cutoff := time.Now().Add(-olderThan)
+	count := 0
+
+	// Find old sessions
+	var toDelete []string
+	for id, info := range s.sessions {
+		if info.LastUsed.Before(cutoff) && info.State != SessionStateActive {
+			toDelete = append(toDelete, id)
+		}
+	}
+
+	// Delete from DB
+	for _, id := range toDelete {
+		_, err := s.db.Exec("DELETE FROM sessions WHERE id = ?", id)
+		if err == nil {
+			delete(s.sessions, id)
+			count++
+		}
+	}
+
+	if count > 0 {
+		_, _ = s.db.Exec("VACUUM")
+	}
+
+	return count, nil
+}
+
+// GetDBPath returns the database file path
+func (s *SessionStore) GetDBPath() string {
+	return s.dbPath
+}
+
+// GetDBSize returns the database file size in bytes
+func (s *SessionStore) GetDBSize() int64 {
+	info, err := os.Stat(s.dbPath)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
 }

@@ -45,6 +45,7 @@ func init() {
 	rootCmd.AddCommand(newFactoryCmd())
 	rootCmd.AddCommand(newGatewayCmd())
 	rootCmd.AddCommand(newMCPCmd())
+	rootCmd.AddCommand(newSessionsCmd())
 	rootCmd.AddCommand(newSessionCmd())
 	rootCmd.AddCommand(newSlackCmd())
 	rootCmd.AddCommand(newToolsCmd())

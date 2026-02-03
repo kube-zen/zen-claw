@@ -62,6 +62,7 @@ default:
 
 sessions:
   max_sessions: 5
+  # db_path: ~/.zen/zen-claw/data/sessions.db  # Custom path (optional)
 
 # MCP Servers (optional) - auto-connect on gateway start
 # mcp:
