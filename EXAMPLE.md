@@ -1,16 +1,16 @@
 # Zen Claw - Complete Examples
 
-This document shows practical examples of using Zen Claw with the current architecture.
+This document shows practical examples of using Zen Claw with real-time progress streaming.
 
 ## Architecture Overview
 
 ```
-┌─────────────┐    HTTP     ┌─────────────┐    API Calls    ┌─────────────┐
-│   Agent     │─────────────▶│  Gateway    │────────────────▶│ AI Providers │
-│  (Client)   │◀─────────────│ (Server)    │◀────────────────│ (DeepSeek,  │
-└─────────────┘              └─────────────┘                 │   Qwen,     │
-     │                              │                        │    etc.)    │
+┌─────────────┐  SSE Stream  ┌─────────────┐    API Calls    ┌─────────────┐
+│   Agent     │◄────────────►│  Gateway    │────────────────▶│ AI Providers │
+│  (Client)   │  Progress    │ (Server)    │◀────────────────│ DeepSeek,   │
+└─────────────┘  Events      └─────────────┘                 │ Kimi, Qwen  │
      │                              │                        └─────────────┘
+     │                              │
      │                         Session Store
      │                         (Persistent)
      │
@@ -18,9 +18,9 @@ Tool Execution
      │
 ┌─────────────┐
 │   Tools     │
-│  (exec,     │
-│  read_file, │
-│  list_dir)  │
+│  exec, read │
+│  write,edit │
+│  search...  │
 └─────────────┘
 ```
 
@@ -40,11 +40,19 @@ curl http://localhost:8080/health
 # Run a simple task with default provider (DeepSeek)
 ./zen-claw agent "What's in the current directory?"
 
-# Run with specific provider
-./zen-claw agent --provider qwen "Analyze the Go code in this directory"
+# Output shows real-time progress:
+# 🚀 Starting with deepseek/deepseek-chat
+# 📍 Step 1/100: Thinking...
+#    💭 Waiting for AI response...
+#    🔧 list_dir(path=".")
+#    ✓ list_dir → 34 items
+# ✅ Task completed
 
-# Run with specific model
-./zen-claw agent --model qwen3-coder-30b-a3b-instruct "Review this code"
+# Run with specific provider (Kimi for Go/K8s)
+./zen-claw agent --provider kimi "Analyze the Go code in this directory"
+
+# Run with Qwen for large context
+./zen-claw agent --provider qwen "Review the entire codebase"
 
 # Run with session ID (for continuing later)
 ./zen-claw agent --session-id my-project "Set up a new Go project"
@@ -141,7 +149,37 @@ curl http://localhost:8080/sessions/test-session
 curl -X DELETE http://localhost:8080/sessions/test-session
 ```
 
+### Streaming Chat (SSE)
+```bash
+# Get real-time progress events
+curl -N -X POST http://localhost:8080/chat/stream \
+  -H "Content-Type: application/json" \
+  -H "Accept: text/event-stream" \
+  -d '{
+    "user_input": "analyze this codebase",
+    "provider": "kimi",
+    "working_dir": "."
+  }'
+
+# Output is Server-Sent Events:
+# data: {"type":"start","message":"Starting with kimi/kimi-k2-5"}
+# data: {"type":"step","step":1,"message":"Step 1/100: Thinking..."}
+# data: {"type":"tool_call","step":1,"message":"🔧 list_dir(path=\".\")"}
+# data: {"type":"tool_result","step":1,"message":"✓ list_dir → 34 items"}
+# data: {"type":"done","session_id":"...","result":"..."}
+```
+
 ## 5. Provider-Specific Examples
+
+### Using Kimi (256K Context, Go/K8s Expert)
+```bash
+# Kimi K2.5 is excellent for Go and Kubernetes code
+./zen-claw agent --provider kimi "Review this Kubernetes operator code"
+
+# $0.10/M input tokens, cached system prompts get 90% discount
+./zen-claw agent --provider kimi --model kimi-k2-5 \
+  "Analyze this controller-runtime implementation"
+```
 
 ### Using Qwen (262K Context)
 ```bash
@@ -252,27 +290,38 @@ default:
 ## 10. Tips and Best Practices
 
 1. **Use session IDs** for multi-step tasks
-2. **Start with Qwen** for code analysis (large context)
-3. **Use DeepSeek** for quick tasks
-4. **Be specific** in your requests
-5. **Check gateway health** if things seem slow
-6. **Use verbose mode** for debugging: `--verbose`
-7. **Monitor session files** in `/tmp/zen-claw-sessions/`
+2. **Use Kimi** for Go/K8s code ($0.10/M, great for DevOps)
+3. **Use Qwen** for large codebases (262K context)
+4. **Use DeepSeek** for quick tasks (fast response)
+5. **Watch the progress** - streaming shows exactly what's happening
+6. **Be specific** in your requests
+7. **Use --max-steps** for complex refactoring tasks
+8. **Monitor session files** in `/tmp/zen-claw-sessions/`
+
+## Provider Selection Guide
+
+| Use Case | Recommended Provider | Why |
+|----------|---------------------|-----|
+| Go/K8s code | kimi | Excellent at Go idioms, cheap |
+| Large codebase | qwen | 262K context window |
+| Quick tasks | deepseek | Fast response time |
+| Complex analysis | kimi or qwen | Large context, reasoning |
+| Fallback | openai | Most reliable |
 
 ## Troubleshooting
 
 If something doesn't work:
 1. Check if gateway is running: `curl http://localhost:8080/health`
 2. Check API keys are configured
-3. Try with `--verbose` flag
-4. Check `/tmp/zen-gateway-*.log` for errors
+3. Watch streaming progress for errors
+4. Check `/tmp/gateway.log` for errors
 5. Restart gateway: `pkill -f "zen-claw gateway" && ./zen-claw gateway start`
 
 ## Next Steps
 
 Explore more advanced features:
 - Multiple concurrent agents
-- Custom tool development
-- Integration with other services
-- Web interface for the gateway
-- Advanced session management
+- Custom tool development  
+- Web UI (coming soon)
+- Consensus mode (multiple AI providers)
+- Factory mode (domain specialists)

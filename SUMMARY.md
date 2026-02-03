@@ -1,91 +1,112 @@
-# Zen Claw - Summary
+# Zen Claw - Project Summary
 
-## What We Built
+## What It Is
 
-A complete Go clone of OpenClaw's core architecture in **2 hours**, focusing on:
+Zen Claw is a Go-based AI agent system with:
+- **6 AI providers** (DeepSeek, Kimi, Qwen, GLM, Minimax, OpenAI)
+- **Real-time progress streaming** via SSE
+- **8 tools** for file/system operations
+- **Session persistence** with multi-session support
+- **Gateway architecture** for scalable deployments
 
-1. **CLI Framework** - Using cobra with commands: agent, session, tools, gateway
-2. **Agent System** - Workspace management, session tracking, tool integration
-3. **Tool System** - Read, write, edit, exec, process tools implemented
-4. **AI Interface** - Provider abstraction ready for OpenAI, DeepSeek, etc.
-5. **Session Management** - Transcript persistence, sub-agent spawning
-6. **Documentation** - README, EXAMPLE, BUILD, and test scripts
-
-## Architecture Decisions
-
-### ✅ Adopted from OpenClaw
-- Tool-based AI interaction
-- Session persistence
-- Workspace isolation
-- CLI-first design
-- Gateway pattern for remote access
-
-### ✅ Go-specific Improvements
-- Single binary deployment
-- Native concurrency (goroutines)
-- Strong typing for tool parameters
-- Minimal dependencies (just cobra)
-- Cross-platform by default
-
-### ✅ Our Philosophy Applied
-- **Trunk-based**: All commits to `main`, no branches
-- **Atomic**: Each commit does one thing completely
-- **Minimal**: No CI, no complex project structure
-- **Practical**: Working structure in hours, not days
-- **Documented**: Code + docs written together
-
-## Files Created
+## Architecture
 
 ```
-12 source files
-4 documentation files
-1 test script
+┌────────────┐    SSE     ┌────────────┐    API    ┌────────────┐
+│   CLI      │◄──────────►│  Gateway   │◄─────────►│ Providers  │
+│  Client    │  Stream    │  :8080     │           │ 6 backends │
+└────────────┘            └────────────┘           └────────────┘
+                                │
+                          ┌─────┴─────┐
+                          │  Session  │
+                          │   Store   │
+                          └───────────┘
 ```
 
-## Lines of Code
-- **Go**: ~300 lines (core structure)
-- **Documentation**: ~200 lines (guides, examples)
-- **Total**: ~500 lines of working, documented code
+## Key Features
 
-## Ready for AI Integration
+### Real-Time Progress
+```
+🚀 Starting with deepseek/deepseek-chat
+📍 Step 1/100: Thinking...
+   💭 Waiting for AI response...
+   🔧 list_dir(path=".")
+   ✓ list_dir → 34 items
+✅ Task completed
+```
 
-The structure is complete. To add real AI:
+### Multi-Provider Support
+| Provider | Model | Context | Best For |
+|----------|-------|---------|----------|
+| DeepSeek | deepseek-chat | 32K | Fast tasks |
+| Kimi | kimi-k2-5 | 256K | Go/K8s |
+| Qwen | qwen3-coder-30b | 262K | Large codebases |
+| GLM | glm-4.7 | 128K | Chinese |
+| Minimax | minimax-M2.1 | 128K | Balanced |
+| OpenAI | gpt-4o-mini | 128K | Fallback |
 
-1. **Add provider packages** (`internal/providers/openai.go`, etc.)
-2. **Configure API keys** (environment variables, config file)
-3. **Connect agent to provider** (use the `ai.Provider` interface)
-4. **Test with real models** (OpenAI GPT-4, DeepSeek, etc.)
+### Tool System
+- `exec` - Shell commands
+- `read_file` / `write_file` / `edit_file` / `append_file` - File ops
+- `list_dir` - Directory listing
+- `search_files` - Regex search
+- `system_info` - System info
 
-## What's Missing (By Design)
+### Session Management
+- Max 5 concurrent sessions (configurable)
+- Persistent to `/tmp/zen-claw-sessions/`
+- Background/activate states
+- API management
 
-- **Complex integrations** (WhatsApp, Telegram, Discord) - focus on core AI
-- **UI components** - CLI-first, gateway enables future UIs
-- **Advanced tooling** (browser automation, etc.) - can be added as needed
-- **CI/CD pipelines** - trunk-based, manual testing is fine for now
+## Technical Details
 
-## Success Metrics
+### Timeouts
+- HTTP Client: 45 min
+- Agent Context: 30 min
+- Per-Step: 5 min
+- Max Steps: 100 (configurable)
 
-✅ **Structure**: Complete Go project with proper modules and packages  
-✅ **CLI**: Functional command framework with help and flags  
-✅ **Tools**: Core tool implementations matching OpenClaw  
-✅ **AI Interface**: Clean abstraction for multiple providers  
-✅ **Documentation**: Comprehensive guides for users and developers  
-✅ **Philosophy**: Trunk-based, minimal, practical approach maintained  
+### API Endpoints
+- `POST /chat` - Blocking request
+- `POST /chat/stream` - SSE streaming
+- `GET /sessions` - List sessions
+- `GET/DELETE /sessions/{id}` - Session ops
 
-## Next 2 Hours (If Continuing)
+### Configuration
+- File: `~/.zen/zen-claw/config.yaml`
+- Env: `{PROVIDER}_API_KEY`
+- Provider fallback ordering
 
-1. **Add OpenAI provider** (30 min)
-2. **Test real AI interaction** (30 min)
-3. **Add more tools** (web_search, web_fetch) (30 min)
-4. **Implement gateway WebSocket** (30 min)
+## Codebase Structure
 
-## Conclusion
+```
+zen-claw/
+├── cmd/                    # CLI commands
+│   ├── agent.go           # Agent command + streaming client
+│   ├── gateway.go         # Gateway server
+│   └── ...
+├── internal/
+│   ├── agent/             # Agent engine + tools
+│   ├── gateway/           # HTTP server + SSE
+│   ├── providers/         # OpenAI-compatible providers
+│   ├── config/            # YAML configuration
+│   └── ...
+├── main.go
+└── go.mod
+```
 
-We successfully created a Go clone of OpenClaw's core in 2 hours that:
-- Captures the essential architecture
-- Improves with Go's strengths
-- Maintains the "get things done" philosophy
-- Is ready for production AI integration
-- Has complete documentation
+## Philosophy
 
-The project demonstrates that with focused work and clear priorities, complex systems can be bootstrapped quickly without sacrificing quality or maintainability.
+- **Trunk-based**: Everything on `main`
+- **Minimal**: No CI overhead
+- **Practical**: Get things done
+- **Go-native**: Single binary
+
+## What's Next
+
+See [README.md](README.md) roadmap for:
+- WebSocket support
+- Token tracking
+- Consensus mode
+- Factory mode
+- Web UI

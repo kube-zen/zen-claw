@@ -1,234 +1,280 @@
 # Zen Claw
 
-A Go clone of OpenClaw focusing on AI interaction and minimal tooling. No branches, no CI overhead, just results.
+A Go-based AI agent system with multi-provider support, real-time progress streaming, and powerful tool execution. Built for practical development workflows.
 
 ## Philosophy
 
 - **Trunk-based**: Everything on `main`, atomic commits
-- **Minimal**: Zero project management overhead
+- **Minimal**: Zero project management overhead  
 - **Practical**: Get things done in hours, not days
 - **Go-native**: Leverage Go's simplicity and performance
 
-## Structure
+## Features
 
+### Real-Time Progress Streaming
+See exactly what the AI is doing as it works:
 ```
-zen-claw/
-├── cmd/           # CLI commands
-├── internal/      # Internal packages
-│   ├── agent/     # AI agent core
-│   ├── session/   # Session management
-│   └── tools/     # Tool implementations
-├── main.go        # Entry point
-└── go.mod         # Go module
+🚀 Starting with deepseek/deepseek-chat
+
+📍 Step 1/100: Thinking...
+   💭 Waiting for AI response...
+   🤖 I'll analyze the codebase structure first.
+   🔧 list_dir(path=".")
+   ✓ list_dir → 34 items
+
+📍 Step 2/100: Thinking...
+   💭 Waiting for AI response...
+   🤖 Now let me read the main configuration...
+   🔧 read_file(path="go.mod")
+   ✓ read_file → 79 lines
+
+✅ Task completed
 ```
+
+### Multi-Provider AI Support
+Six AI providers with automatic fallback:
+
+| Provider | Default Model | Context | Best For |
+|----------|--------------|---------|----------|
+| **DeepSeek** | deepseek-chat | 32K | Fast, general tasks |
+| **Kimi** | kimi-k2-5 | 256K | Go/K8s, $0.10/M input |
+| **Qwen** | qwen3-coder-30b | 262K | Large codebases |
+| **GLM** | glm-4.7 | 128K | Chinese/English |
+| **Minimax** | minimax-M2.1 | 128K | Good balance |
+| **OpenAI** | gpt-4o-mini | 128K | Fallback |
+
+### Powerful Tool System
+- **exec**: Run shell commands with working directory tracking
+- **read_file**: Read file contents
+- **write_file**: Create/overwrite files  
+- **edit_file**: String replacement (like Cursor's StrReplace)
+- **append_file**: Append to files
+- **list_dir**: List directory contents
+- **search_files**: Regex search across files
+- **system_info**: Get system information
+
+### Session Management
+- Persistent conversation state
+- Max 5 concurrent sessions (configurable)
+- Background/activate session states
+- Session export capability
 
 ## Quick Start
 
 ```bash
-# Build (when Go is installed)
+# Build
 go build -o zen-claw .
 
-# Run agent with default provider
-./zen-claw agent "analyze project"
+# Start gateway (required)
+./zen-claw gateway start &
 
-# Run agent with Qwen specifically
-./zen-claw agent --provider qwen "analyze codebase"
+# Run agent with streaming progress
+./zen-claw agent "analyze this project"
 
-# Run agent with specific Qwen model
-./zen-claw agent --model qwen/qwen3-coder-30b "code review"
+# Interactive mode
+./zen-claw agent
 
-# List tools
-./zen-claw tools
+# Use specific provider
+./zen-claw agent --provider kimi "review this Go code"
 
-# Manage sessions
-./zen-claw session list
-
-# Use verbose mode for debugging
-./zen-claw agent --verbose "debug this issue"
+# Increase max steps for complex tasks
+./zen-claw agent --max-steps 200 "refactor the entire module"
 ```
-
-## Shell Autocomplete
-
-To enable tab completion in your shell:
-
-### Bash
-```bash
-source <(zen-claw completion bash)
-```
-
-To make it permanent, add to your `~/.bashrc`:
-```bash
-echo 'source <(zen-claw completion bash)' >> ~/.bashrc
-```
-
-### Zsh
-```bash
-source <(zen-claw completion zsh)
-```
-
-To make it permanent, add to your `~/.zshrc`:
-```bash
-echo 'source <(zen-claw completion zsh)' >> ~/.zshrc
-```
-
-### Fish
-```bash
-zen-claw completion fish | source
-```
-
-To make it permanent, add to your `~/.config/fish/completions/zen-claw.fish`:
-```bash
-zen-claw completion fish > ~/.config/fish/completions/zen-claw.fish
-```
-
-## Core Features
-
-### AI Agent
-- Run AI sessions with tool access
-- Automatic tool chaining
-- Conversation continuation
-- Multi-provider support (DeepSeek, OpenAI, Qwen, etc.)
-
-### Model Switching
-- **Default model**: DeepSeek (configured in settings)
-- **Switch models during session**:
-  - `/models` - List all available models
-  - `/model qwen/qwen3-coder-30b` - Switch to Qwen Coder
-  - `/model deepseek/deepseek-chat` - Switch to DeepSeek
-
-### Tool System
-- **Read**: Read file contents
-- **Write**: Create or overwrite files  
-- **Edit**: Make precise edits to files
-- **Exec**: Run shell commands
-- **File Search**: Find files by name or content
-- **Git Operations**: Git status, diff, log, etc.
-- **Environment**: Manage environment variables
-
-### Session Management
-- Persistent conversation state
-- Session ID tracking
-- Session tagging for organization
-- Session export capability
-
-## Qwen Integration
-
-### 🎯 **Qwen3-Coder-30B Special Feature**
-**📚 262K Context Window** - The only dedicated coder model with massive context under $1!
-- **$0.216** for first 32K tokens
-- **$0.538** even at 200K tokens
-- **Perfect for**: Analyzing massive legacy codebases, providing 50-file context for architecture decisions
 
 ## Configuration
 
-Zen Claw comes with sensible defaults. Configure via environment variables or config file:
+Config file: `~/.zen/zen-claw/config.yaml`
 
-```bash
-# Environment variables
-export QWEN_API_KEY="your-qwen-api-key-here"
-export DEEPSEEK_API_KEY="your-deepseek-api-key-here"
-
-# Or create config file: ~/.zen/zen-claw/config.yaml
+```yaml
 providers:
-  qwen:
-    api_key: "${QWEN_API_KEY}"
-    model: "qwen3-coder-30b"
-    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
   deepseek:
-    api_key: "${DEEPSEEK_API_KEY}"
-    model: "deepseek-chat"
+    api_key: sk-your-key
+    model: deepseek-chat
+    base_url: "https://api.deepseek.com"
+  
+  kimi:
+    api_key: sk-your-key
+    model: kimi-k2-5
+    base_url: "https://api.moonshot.cn/v1"
+  
+  qwen:
+    api_key: sk-your-key
+    model: qwen3-coder-30b-a3b-instruct
+    base_url: "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
 
 default:
-  provider: "qwen"
-  model: "qwen3-coder-30b"
-  thinking: false
+  provider: deepseek
+  model: deepseek-chat
 
-workspace:
-  path: "~/.zen/zen-claw/workspace"
+sessions:
+  max_sessions: 5
+
+preferences:
+  fallback_order: [deepseek, kimi, glm, minimax, qwen, openai]
 ```
 
-## Interactive Mode Commands
-
-When using interactive mode (`./zen-claw agent`), you can use these commands:
-
-### Provider Management:
-- **`/providers`** - List all available AI providers
-- **`/provider <name>`** - Switch to specific provider (uses its default model)
-
-### Model Management:
-- **`/models`** - Show models for current provider only
-- **`/model <name>`** - Switch model within current provider
-
-### Session Management:
-- **`/help`** - Show all available commands
-- **`/exit`**, **`/quit`** - Exit interactive mode
-
-### Example Workflow:
+Or use environment variables:
 ```bash
-# Start interactive mode
-./zen-claw agent
-
-# In the session:
-/providers                 # List all providers
-/provider qwen             # Switch to Qwen provider
-/models                   # See Qwen models only
-/model qwen-plus          # Switch to qwen-plus model
-"analyze this code"       # Send task to AI
-/exit                     # Exit
+export DEEPSEEK_API_KEY="sk-..."
+export KIMI_API_KEY="sk-..."
+export QWEN_API_KEY="sk-..."
 ```
 
-## Gateway Architecture
+## Interactive Commands
 
-Zen Claw uses a client-server architecture:
+| Command | Description |
+|---------|-------------|
+| `/providers` | List all available AI providers |
+| `/provider <name>` | Switch provider (resets to default model) |
+| `/models` | Show models for current provider |
+| `/model <name>` | Switch model within provider |
+| `/context-limit [n]` | Set context limit (0=unlimited, default 50) |
+| `/qwen-large-context [on\|off]` | Toggle Qwen 256K context |
+| `/exit`, `/quit` | Exit interactive mode |
+| `/help` | Show all commands |
 
-1. **Gateway Server** (`./zen-claw gateway start`):
-   - Manages AI provider connections
-   - Handles session persistence
-   - Provides REST API on port 8080
+## Architecture
 
-2. **Agent Client** (`./zen-claw agent`):
-   - Connects to gateway
-   - Sends tasks and receives results
-   - Interactive command interface
+```
+┌─────────────┐     SSE Stream      ┌─────────────┐
+│   CLI       │◄──────────────────►│   Gateway   │
+│   Client    │    Progress Events  │   Server    │
+└─────────────┘                     └──────┬──────┘
+                                           │
+                    ┌──────────────────────┼──────────────────────┐
+                    │                      │                      │
+              ┌─────▼─────┐          ┌─────▼─────┐          ┌─────▼─────┐
+              │  Agent    │          │  Session  │          │    AI     │
+              │  Engine   │          │   Store   │          │  Router   │
+              └─────┬─────┘          └───────────┘          └─────┬─────┘
+                    │                                             │
+              ┌─────▼─────┐                                 ┌─────▼─────┐
+              │   Tools   │                                 │ Providers │
+              │ exec,read │                                 │ DS,Kimi.. │
+              └───────────┘                                 └───────────┘
+```
 
-3. **Session Persistence**:
-   - Sessions stored in `/tmp/zen-claw-sessions/`
-   - Survive gateway restarts
-   - Multiple clients can attach to same session
+**Gateway Server** (`:8080`)
+- REST API + SSE streaming
+- Session persistence in `/tmp/zen-claw-sessions/`
+- AI provider routing with fallback
+- Tool execution coordination
 
-## Byobu Integration
+**CLI Client**
+- Real-time progress streaming
+- Interactive mode with readline
+- History persistence
 
-Perfect for terminal-based workflow with Byobu:
-- **F2**: Create new session window
-- **F3**: Previous window (left)
-- **F4**: Next window (right) 
-- **F8**: Rename window
+## API Endpoints
 
-## Development Philosophy
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Health check |
+| POST | `/chat` | Send chat request (blocking) |
+| POST | `/chat/stream` | Chat with SSE progress streaming |
+| GET | `/sessions` | List all sessions |
+| GET | `/sessions/{id}` | Get session details |
+| DELETE | `/sessions/{id}` | Delete session |
+| POST | `/sessions/{id}/background` | Move to background |
+| POST | `/sessions/{id}/activate` | Activate session |
+| GET | `/preferences` | Get AI routing preferences |
 
-1. **Atomic commits**: Each commit does one thing well
-2. **Trunk-only**: No branches, push directly to main
-3. **Working > Perfect**: Ship it, then improve
-4. **Document as you go**: README and comments are mandatory
-5. **Test in production**: Actually use what you build
+See [API.md](API.md) for detailed documentation.
 
-## Private Testing Notes
+## Timeout Configuration
 
-This is designed for private/internal use. No OSS considerations, just pure functionality evaluation.
+| Component | Timeout | Purpose |
+|-----------|---------|---------|
+| HTTP Client | 45 min | Total request timeout |
+| Agent Context | 30 min | Agent execution limit |
+| Per-Step AI Call | 5 min | Individual AI call |
+| Max Steps | 100 | Tool execution limit |
+
+## Troubleshooting
+
+```bash
+# Check gateway health
+curl http://localhost:8080/health
+
+# Check active sessions
+curl http://localhost:8080/sessions
+
+# View gateway logs
+tail -f /tmp/gateway.log
+
+# Restart gateway
+pkill -f "zen-claw gateway"
+./zen-claw gateway start &
+```
+
+See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed solutions.
+
+## Shell Completion
+
+```bash
+# Bash
+source <(zen-claw completion bash)
+
+# Zsh  
+source <(zen-claw completion zsh)
+
+# Fish
+zen-claw completion fish | source
+```
+
+---
+
+## Roadmap
+
+### Completed ✅
+
+- [x] Multi-provider AI support (6 providers)
+- [x] Real-time SSE progress streaming
+- [x] Session persistence and management
+- [x] Tool system (8 tools: exec, read, write, edit, append, list, search, sysinfo)
+- [x] Interactive CLI with readline
+- [x] Provider fallback routing
+- [x] Context limit control
+- [x] Kimi K2.5 integration
+- [x] **Consensus mode** - 3 AIs → arbiter → better blueprints
+- [x] **Factory mode** - Coordinator + specialist AIs for complex projects
+- [x] **Guardrails** - Safety limits (cost, time, files, phases)
+- [x] **Simplified sessions** - Fresh by default (like Cursor), named sessions opt-in
+
+### Short Term (Next)
+
+- [ ] **Response caching** - Cache identical prompts/tool outputs (30-50% cost savings)
+- [ ] **Parallel tool execution** - Execute independent tools concurrently
+- [ ] **Retry/backoff** - Auto-retry failed AI calls with exponential backoff
+- [ ] **Token usage tracking** - Show cost per request/session
+
+### Medium Term
+
+- [ ] **Git integration** - Built-in git tools (status, diff, commit)
+- [ ] **Diff display** - Show file changes before writing
+- [ ] **MCP protocol support** - Integrate Model Context Protocol tools
+- [ ] **Streaming responses** - Token-by-token AI response display
+
+### Long Term
+
+- [ ] **Web UI** - Browser-based interface
+- [ ] **Plugin system** - Custom tool packages
+- [ ] **RAG support** - Vector search for large codebases
+
+### Ideas
+
+1. **Undo support** - Rollback file modifications
+2. **Provider health monitoring** - Track latency and errors  
+3. **Cost estimation** - Predict cost before execution
+4. **Smart context** - Auto-include relevant files
+
+---
 
 ## Documentation
 
-- **[EXAMPLE.md](EXAMPLE.md)** - Practical usage examples
-- **[API.md](API.md)** - Gateway API documentation  
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
-
-## Quick Troubleshooting
-
-If something doesn't work:
-1. Check gateway is running: `curl http://localhost:8080/health`
-2. Rebuild after code changes: `go build -o zen-claw .`
-3. Check API keys in `~/.zen/zen-claw/config.yaml`
-4. See logs: `tail -f /tmp/zen-gateway-*.log`
+- [API.md](API.md) - Gateway API documentation
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Common issues and solutions
+- [EXAMPLE.md](EXAMPLE.md) - Usage examples
 
 ## License
 

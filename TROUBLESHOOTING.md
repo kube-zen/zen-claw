@@ -121,15 +121,16 @@ curl -X POST https://api.deepseek.com/chat/completions \
 **Wrong model name:**
 ```bash
 # Use correct model names:
-# - Qwen: qwen3-coder-30b-a3b-instruct
 # - DeepSeek: deepseek-chat
+# - Kimi: kimi-k2-5
+# - Qwen: qwen3-coder-30b-a3b-instruct
 # - GLM: glm-4.7
 # - Minimax: minimax-M2.1
 # - OpenAI: gpt-4o-mini
 
 # List models for current provider in interactive mode:
 /providers
-/provider qwen
+/provider kimi
 /models
 ```
 
@@ -174,14 +175,27 @@ go build -o zen-claw .
 
 **Solutions:**
 
+**Watch streaming progress:**
+```bash
+# The CLI now shows real-time progress
+# Watch for which step is taking time:
+🚀 Starting with deepseek/deepseek-chat
+📍 Step 1/100: Thinking...     # <-- If stuck here, AI is slow
+   💭 Waiting for AI response...
+   🔧 list_dir(path=".")       # <-- Tool execution
+   ✓ list_dir → 34 items
+```
+
 **API latency:**
 ```bash
-# Some APIs are slower than others
-# Qwen: 2-3 seconds per call
-# DeepSeek: 1-2 seconds per call
+# Provider speeds vary:
+# DeepSeek: 1-2 seconds (fastest)
+# Kimi: 2-3 seconds
+# Qwen: 2-4 seconds
+# GLM: 2-3 seconds
 
-# Use --timeout flag (future feature)
-# Or switch to faster provider
+# Switch to faster provider
+./zen-claw agent --provider deepseek "quick task"
 ```
 
 **Too many steps:**
@@ -400,14 +414,23 @@ sudo netstat -tlnp | grep :8080
 - Network issues
 - Increase timeout in code
 
+### `Invalid Authentication` (Kimi)
+- API key format issue
+- Check key on https://platform.moonshot.cn
+
+### `stream error: EOF`
+- Connection closed unexpectedly
+- Gateway may have crashed
+- Restart gateway and retry
+
 ## Getting Help
 
 If you still have issues:
 
-1. **Check logs**: `/tmp/zen-gateway-*.log`
-2. **Test manually**: Use `curl` to test APIs
-3. **Simplify**: Try minimal test case
-4. **Search issues**: Check GitHub issues (future)
+1. **Check logs**: `/tmp/gateway.log`
+2. **Watch progress**: Streaming shows where it fails
+3. **Test manually**: Use `curl` to test APIs
+4. **Simplify**: Try minimal test case
 5. **Ask for help**: Provide logs and error messages
 
 ## Prevention Tips

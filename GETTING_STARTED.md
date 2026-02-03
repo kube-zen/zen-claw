@@ -1,227 +1,212 @@
 # Zen Claw - Getting Started
 
-## 🚀 Quick Start
+## Quick Start (5 minutes)
 
 ```bash
-# Build
-cd ~/git/zen-claw
+# 1. Build
+cd ~/zen/zen-claw
 go build -o zen-claw .
 
-# Check configuration
-./zen-claw config check
+# 2. Set up API key (get free key from https://platform.deepseek.com)
+export DEEPSEEK_API_KEY=sk-your-key-here
 
-# Test with mock provider (no API key needed)
-./zen-claw agent --model mock --task "read README.md"
+# 3. Start gateway
+./zen-claw gateway start &
 
-# Start interactive mode with mock
-./zen-claw agent --model mock
+# 4. Run your first task
+./zen-claw agent "list files in the current directory"
 ```
 
-## 📁 Configuration
+You'll see real-time progress:
+```
+🚀 Starting with deepseek/deepseek-chat
+📍 Step 1/100: Thinking...
+   💭 Waiting for AI response...
+   🔧 list_dir(path=".")
+   ✓ list_dir → 18 items
+✅ Task completed
+```
 
-Zen Claw uses YAML configuration at `~/.zen/zen-claw/config.yaml`:
+## Configuration
+
+### Option 1: Environment Variables (Quick)
+```bash
+export DEEPSEEK_API_KEY="sk-..."     # Recommended: Free tier available
+export KIMI_API_KEY="sk-..."          # $0.10/M, great for Go/K8s
+export QWEN_API_KEY="sk-..."          # 262K context window
+```
+
+### Option 2: Config File (Persistent)
+Create `~/.zen/zen-claw/config.yaml`:
 
 ```yaml
-# Default settings
-default:
-  provider: deepseek  # Default provider
-  model: deepseek-chat
-  thinking: false
-
-# Workspace
-workspace:
-  path: ~/.zen/zen-claw/workspace
-
-# AI Providers
 providers:
   deepseek:
-    api_key: ${DEEPSEEK_API_KEY}  # Get from https://platform.deepseek.com
+    api_key: sk-your-deepseek-key
     model: deepseek-chat
     base_url: "https://api.deepseek.com"
   
-  glm:
-    api_key: ${GLM_API_KEY}  # Get from https://open.bigmodel.cn/
-    model: glm-4.7
-    base_url: "https://open.bigmodel.cn/api/paas/v4"
+  kimi:
+    api_key: sk-your-kimi-key
+    model: kimi-k2-5
+    base_url: "https://api.moonshot.cn/v1"
   
-  minimax:
-    api_key: ${MINIMAX_API_KEY}  # Get from https://api.minimax.chat/
-    model: minimax-M2.1
-    base_url: "https://api.minimax.chat/v1"
-  
-  openai:
-    api_key: ${OPENAI_API_KEY}
-    model: gpt-4o-mini
-    base_url: "https://api.openai.com/v1"
+  qwen:
+    api_key: sk-your-qwen-key
+    model: qwen3-coder-30b-a3b-instruct
+    base_url: "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
+
+default:
+  provider: deepseek
+  model: deepseek-chat
+
+sessions:
+  max_sessions: 5
 ```
 
-## 🔑 Getting API Keys
+## Getting API Keys
 
-### 1. **DeepSeek** (Recommended - Free tier)
-- Visit: https://platform.deepseek.com
-- Sign up and get API key
-- Free tier: 1M tokens/month
+| Provider | URL | Notes |
+|----------|-----|-------|
+| **DeepSeek** | https://platform.deepseek.com | Free tier, fast |
+| **Kimi** | https://platform.moonshot.cn | $0.10/M, Go/K8s expert |
+| **Qwen** | https://dashscope.aliyuncs.com | 262K context |
+| **GLM** | https://open.bigmodel.cn | Chinese support |
+| **Minimax** | https://api.minimax.chat | Balanced |
+| **OpenAI** | https://platform.openai.com | Fallback |
 
-### 2. **GLM-4.7** (Zhipu AI)
-- Visit: https://open.bigmodel.cn
-- Sign up and get API key
-- Good Chinese support, OpenAI-compatible
+## Basic Usage
 
-### 3. **Minimax R2**
-- Visit: https://api.minimax.chat
-- Sign up and get API key
-- Good Chinese/English balance
-
-### 4. **OpenAI** (Fallback)
-- Visit: https://platform.openai.com
-- Get API key for GPT-4o/GPT-3.5
-
-## 🛠️ Configuration Commands
-
+### One-off Tasks
 ```bash
-# Initialize config
-./zen-claw config init
+# Simple question
+./zen-claw agent "what is 2+2?"
 
-# Show config
-./zen-claw config show
+# Code analysis
+./zen-claw agent "analyze the main.go file"
 
-# Check config status
-./zen-claw config check
-
-# Show config path
-./zen-claw config path
+# With specific provider
+./zen-claw agent --provider kimi "review this Go code"
 ```
 
-## 🤖 Using Zen Claw
-
-### With Mock Provider (Testing)
+### Interactive Mode
 ```bash
-# Test tool calling
-./zen-claw agent --model mock --task "read README.md"
-./zen-claw agent --model mock --task "write hello.txt with content"
+./zen-claw agent
 
-# Interactive mode
-./zen-claw agent --model mock
+# Commands available:
+# /providers        - List providers
+# /provider kimi    - Switch provider
+# /models          - List models
+# /model kimi-k2-5  - Switch model
+# /help            - Show help
+# /exit            - Exit
 ```
 
-### With Real AI Provider
+### Session Management
 ```bash
-# Set API key
-export DEEPSEEK_API_KEY=your_key_here
+# Start with session ID (for continuation)
+./zen-claw agent --session-id my-project "set up a Go project"
 
-# Use DeepSeek
-./zen-claw agent --model deepseek --task "Write a Go function"
+# Continue later
+./zen-claw agent --session-id my-project "add error handling"
 
-# Or use config default
-./zen-claw agent --task "Help me with code"
+# List sessions
+curl http://localhost:8080/sessions
 ```
 
-## 🧪 Available Tools
+## Provider Selection Guide
 
-Zen Claw provides these tools to AI:
-- `read` - Read files
-- `write` - Write files  
-- `edit` - Edit files
-- `exec` - Execute commands
-- `process` - Manage processes
+| Task | Provider | Why |
+|------|----------|-----|
+| Quick tasks | deepseek | Fast, cheap |
+| Go/K8s code | kimi | Expert at Go idioms |
+| Large codebase | qwen | 262K context |
+| Complex reasoning | kimi | Strong analysis |
 
-## 🏗️ Project Structure
+## Architecture
 
 ```
-~/.zen/zen-claw/
-├── config.yaml          # Configuration
-└── workspace/          # Agent workspace
-
-~/git/zen-claw/
-├── zen-claw           # Binary
-├── cmd/               # CLI commands
-├── internal/          # Core packages
-│   ├── config/       # YAML config
-│   ├── providers/    # AI providers
-│   ├── agent/        # Agent logic
-│   ├── tools/        # Tool implementations
-│   └── session/      # Session management
-└── *.md              # Documentation
+┌────────────┐    SSE     ┌────────────┐    API    ┌────────────┐
+│   CLI      │◄──────────►│  Gateway   │◄─────────►│ Providers  │
+│  Client    │  Stream    │  :8080     │           │ DS/Kimi/.. │
+└────────────┘            └────────────┘           └────────────┘
 ```
 
-## 🔧 Development
+1. **Gateway** - Required, manages AI connections and sessions
+2. **CLI** - Connects to gateway, shows progress
+3. **Providers** - Multiple AI backends with fallback
 
+## Available Tools
+
+The AI agent has access to:
+
+| Tool | Description |
+|------|-------------|
+| `exec` | Run shell commands |
+| `read_file` | Read file contents |
+| `write_file` | Create/overwrite files |
+| `edit_file` | String replacement |
+| `append_file` | Append to files |
+| `list_dir` | List directory |
+| `search_files` | Regex search |
+| `system_info` | System information |
+
+## Troubleshooting
+
+### Gateway Issues
 ```bash
-# Build
-go build -o zen-claw .
+# Check if running
+curl http://localhost:8080/health
 
-# Run tests
-go test ./...
+# Restart gateway
+pkill -f "zen-claw gateway"
+./zen-claw gateway start &
+```
 
-# Add dependency
-go get github.com/package/name
+### API Key Issues
+```bash
+# Check config
+cat ~/.zen/zen-claw/config.yaml
+
+# Check environment
+echo $DEEPSEEK_API_KEY
+
+# Test API directly
+curl -X POST https://api.deepseek.com/chat/completions \
+  -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"deepseek-chat","messages":[{"role":"user","content":"hi"}]}'
+```
+
+### Build Issues
+```bash
+# Ensure Go 1.24+
+go version
 
 # Update dependencies
 go mod tidy
-```
 
-## 🎯 Example Workflow
-
-1. **Setup**
-```bash
-cd ~/git/zen-claw
+# Rebuild
 go build -o zen-claw .
-./zen-claw config init
-# Edit ~/.zen/zen-claw/config.yaml with API keys
 ```
 
-2. **Test**
-```bash
-# Test with mock
-./zen-claw agent --model mock --task "List files in workspace"
+## Next Steps
 
-# Test with real AI (after setting API key)
-export DEEPSEEK_API_KEY=your_key
-./zen-claw agent --task "Write a Python script"
+1. Try different providers: `--provider kimi`
+2. Use interactive mode for multi-step tasks
+3. Explore the API: `curl http://localhost:8080/`
+4. Read [EXAMPLE.md](EXAMPLE.md) for advanced usage
+5. Check [API.md](API.md) for API documentation
+
+## Key Files
+
+```
+~/.zen/zen-claw/
+├── config.yaml              # Configuration
+└── workspace/              # Agent workspace
+
+/tmp/zen-claw-sessions/      # Session persistence
+/tmp/gateway.log            # Gateway logs
 ```
 
-3. **Use**
-```bash
-# Interactive mode
-./zen-claw agent
-
-# One-off tasks
-./zen-claw agent --task "Analyze this code"
-./zen-claw agent --task "Search for information about X"
-```
-
-## 📊 Provider Comparison
-
-| Provider | Cost | Chinese | Tools | Best For |
-|----------|------|---------|-------|----------|
-| **DeepSeek** | Free tier | Excellent | ✅ | General use, testing |
-| **GLM-4.7** | Low | Excellent | ✅ | Chinese tasks |
-| **Minimax R2** | Medium | Good | ✅ | Balanced tasks |
-| **OpenAI** | High | Good | ✅ | Fallback, English |
-
-## 🚨 Troubleshooting
-
-### "API key not found"
-- Set API key in config file or environment variable
-- Use mock provider for testing: `--model mock`
-
-### "Tool calling not working"
-- Mock provider only calls tools for specific patterns
-- Real providers need tool support (all 4 providers support tools)
-
-### "Configuration issues"
-- Run `./zen-claw config check` to diagnose
-- Ensure `~/.zen/zen-claw/config.yaml` exists
-
-### "Build errors"
-- Ensure Go 1.24+ is installed
-- Run `go mod tidy` to fix dependencies
-
-## 🎉 Next Steps
-
-1. Get a DeepSeek API key (free)
-2. Test with real AI: `export DEEPSEEK_API_KEY=key && ./zen-claw agent`
-3. Explore tool capabilities
-4. Customize configuration as needed
-
-Zen Claw is now ready for production use with real AI providers! 🚀
+Ready to go! 🚀

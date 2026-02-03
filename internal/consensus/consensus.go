@@ -58,13 +58,13 @@ type ConsensusResult struct {
 
 // WorkerStats tracks long-term worker performance
 type WorkerStats struct {
-	Provider     string    `json:"provider"`
-	Model        string    `json:"model"`
-	TotalTasks   int       `json:"total_tasks"`
-	TotalScore   int       `json:"total_score"`
-	AvgScore     float64   `json:"avg_score"`
-	LastUsed     time.Time `json:"last_used"`
-	BestRoles    []string  `json:"best_roles"` // Roles where this worker excelled
+	Provider   string    `json:"provider"`
+	Model      string    `json:"model"`
+	TotalTasks int       `json:"total_tasks"`
+	TotalScore int       `json:"total_score"`
+	AvgScore   float64   `json:"avg_score"`
+	LastUsed   time.Time `json:"last_used"`
+	BestRoles  []string  `json:"best_roles"` // Roles where this worker excelled
 }
 
 // Engine manages multi-model consensus
@@ -405,12 +405,12 @@ OUTPUT FORMAT:
 [Your synthesized blueprint here - be comprehensive and actionable]
 
 ---SCORES---
-` + "```json\n" + `{
+`+"```json\n"+`{
   "scores": [
 %s
   ]
 }
-` + "```",
+`+"```",
 		req.Role, roleDescription, req.Prompt, workerResponses.String(), req.Role,
 		buildScoreTemplate(workerIDs))
 

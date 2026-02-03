@@ -61,16 +61,26 @@ zen-claw/
 ├── main.go                 # Entry point
 ├── cmd/                    # CLI commands (cobra)
 │   ├── root.go            # Root command
-│   ├── agent.go           # Agent command
+│   ├── agent.go           # Agent CLI + streaming client
+│   ├── agent_gateway_client.go  # Gateway client with SSE
 │   ├── session.go         # Session command
-│   ├── tools.go           # Tools command
-│   └── gateway.go         # Gateway command
+│   ├── gateway.go         # Gateway command
+│   └── ...
 ├── internal/              # Private packages
 │   ├── agent/            # Agent core
-│   │   ├── agent.go      # Main agent
-│   │   └── ai_agent.go   # AI integration
-│   ├── session/          # Session management
-│   ├── tools/            # Tool implementations
+│   │   ├── agent.go      # Agent engine with progress events
+│   │   ├── session.go    # Session state
+│   │   └── tools.go      # Tool implementations (8 tools)
+│   ├── gateway/          # HTTP server
+│   │   ├── server.go     # REST + SSE endpoints
+│   │   ├── agent_service.go  # Agent execution
+│   │   ├── session_store.go  # Persistent sessions
+│   │   └── ai_router.go  # Provider routing
+│   ├── providers/        # AI providers
+│   │   ├── openai_compatible.go  # Universal provider
+│   │   └── factory.go    # Provider creation
+│   ├── config/           # Configuration
+│   │   └── config.go     # YAML config + env vars
 │   └── ai/               # AI provider interface
 ├── go.mod                # Go module
 ├── go.sum               # Dependency checksums

@@ -11,21 +11,21 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "zen-claw",
-	Short: "Zen Claw - Multi-AI assistant with consensus and factory modes",
-	Long: `Zen Claw is a multi-model AI assistant for software development.
+	Short: "AI assistant - single AI (like Cursor) or multi-AI for consensus/factory",
+	Long: `Zen Claw - AI assistant for software development.
 
 Modes:
-  agent      Interactive AI agent with tool execution
-  consensus  Multi-AI consensus for better blueprints (3+ AIs → arbiter → synthesis)
-  factory    Software factory with AI specialists (Go, TypeScript, Infrastructure)
+  agent      Single AI, fresh context (like Cursor) - DEFAULT
+  consensus  3 AIs → arbiter → better blueprints
+  factory    Coordinator + specialist AIs for complex projects
 
-Features:
-  • Multi-provider support (DeepSeek, Qwen, MiniMax, Kimi, OpenAI, GLM)
-  • Parallel AI execution for speed
-  • Consensus engine: Diverse AI perspectives → superior results
-  • Factory mode: Coordinator + specialist workers for complex projects
-  • Guardrails for safe autonomous execution
-  • Session persistence and resumption`,
+Quick start:
+  zen-claw agent                    # Interactive mode, single AI
+  zen-claw agent "fix this bug"     # One-shot task
+  zen-claw consensus "design X"     # Get 3 AI perspectives + synthesis
+  zen-claw factory start plan.yaml  # Run multi-phase project
+
+Providers: DeepSeek, Qwen, MiniMax, Kimi, OpenAI, GLM`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Display capabilities at startup
 		displayCapabilities()
@@ -41,6 +41,7 @@ func init() {
 	rootCmd.AddCommand(newAgentCmd())
 	rootCmd.AddCommand(newConfigCmd())
 	rootCmd.AddCommand(newConsensusCmd())
+	rootCmd.AddCommand(newFabricCmd())
 	rootCmd.AddCommand(newFactoryCmd())
 	rootCmd.AddCommand(newGatewayCmd())
 	rootCmd.AddCommand(newSessionCmd())
