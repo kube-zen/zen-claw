@@ -408,3 +408,73 @@ func (c *Config) GetMCPServers() []MCPServerConfig {
 	}
 	return enabled
 }
+
+// ContextTier represents a context size tier for smart routing
+type ContextTier string
+
+const (
+	ContextTierSmall  ContextTier = "small"  // <32K - cheapest providers
+	ContextTierMedium ContextTier = "medium" // 32K-200K - balanced providers
+	ContextTierLarge  ContextTier = "large"  // >200K - premium providers
+)
+
+// GetContextTier returns the appropriate context tier for a token count
+func (c *Config) GetContextTier(tokenCount int) ContextTier {
+	smallMax := c.Routing.ContextTiers.SmallMax
+	mediumMax := c.Routing.ContextTiers.MediumMax
+
+	// Use defaults if not configured
+	if smallMax == 0 {
+		smallMax = 32000
+	}
+	if mediumMax == 0 {
+		mediumMax = 200000
+	}
+
+	if tokenCount <= smallMax {
+		return ContextTierSmall
+	}
+	if tokenCount <= mediumMax {
+		return ContextTierMedium
+	}
+	return ContextTierLarge
+}
+
+// GetProvidersForTier returns providers suitable for a context tier
+func (c *Config) GetProvidersForTier(tier ContextTier) []string {
+	// Known provider capabilities by tier
+	smallProviders := []string{"deepseek", "glm"}                          // 128K max, cheapest
+	mediumProviders := []string{"qwen", "kimi", "deepseek", "glm"}         // 200K-262K, balanced
+	largeProviders := []string{"minimax", "qwen", "kimi", "gemini", "claude"} // 1M+, premium
+
+	switch tier {
+	case ContextTierSmall:
+		return smallProviders
+	case ContextTierMedium:
+		return mediumProviders
+	case ContextTierLarge:
+		return largeProviders
+	default:
+		return smallProviders
+	}
+}
+
+// IsSmartRoutingEnabled returns whether smart context-aware routing is enabled
+func (c *Config) IsSmartRoutingEnabled() bool {
+	// Default to true if not explicitly disabled
+	return c.Routing.SmartRouting || c.Routing.ContextTiers.SmallMax == 0
+}
+
+// GetProviderContextLimit returns the known context limit for a provider
+func GetProviderContextLimit(provider string) int {
+	if limit, ok := ProviderContextInfo[provider]; ok {
+		return limit
+	}
+	return 128000 // Default assumption
+}
+
+// CanProviderHandleContext returns whether a provider can handle the given context size
+func CanProviderHandleContext(provider string, tokenCount int) bool {
+	limit := GetProviderContextLimit(provider)
+	return tokenCount <= limit
+}

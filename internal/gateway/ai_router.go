@@ -97,8 +97,9 @@ func NewAIRouter(cfg *config.Config) *AIRouter {
 
 // Chat sends a chat request through the router with automatic fallback
 func (r *AIRouter) Chat(ctx context.Context, req ai.ChatRequest, preferredProvider string) (*ai.ChatResponse, error) {
-	// Determine provider chain (cost-optimized)
-	providerChain := r.getProviderChain(preferredProvider)
+	// Estimate context size and get context-aware provider chain
+	estimatedTokens := EstimateTokens(req.Messages)
+	providerChain := r.getProviderChainForContext(preferredProvider, estimatedTokens)
 
 	// Generate cache key from request
 	cacheKey := r.computeCacheKey(preferredProvider, req)
@@ -340,6 +341,76 @@ func (r *AIRouter) getProviderChain(preferred string) []string {
 	}
 
 	return chain
+}
+
+// getProviderChainForContext returns context-aware provider chain
+// This implements smart routing: cheap providers for small context, premium for large
+func (r *AIRouter) getProviderChainForContext(preferred string, estimatedTokens int) []string {
+	// If specific provider requested, use it (user knows best)
+	if preferred != "" {
+		if _, exists := r.providers[preferred]; exists {
+			// Warn if provider might not handle the context
+			if !config.CanProviderHandleContext(preferred, estimatedTokens) {
+				log.Printf("[AIRouter] Warning: %s may not handle %d tokens (limit: %d)",
+					preferred, estimatedTokens, config.GetProviderContextLimit(preferred))
+			}
+			return []string{preferred}
+		}
+	}
+
+	// Smart routing disabled? Use regular chain
+	if !r.config.IsSmartRoutingEnabled() {
+		return r.getProviderChain(preferred)
+	}
+
+	// Determine context tier
+	tier := r.config.GetContextTier(estimatedTokens)
+	log.Printf("[AIRouter] Context tier: %s (%d tokens)", tier, estimatedTokens)
+
+	// Get providers for this tier
+	tierProviders := r.config.GetProvidersForTier(tier)
+
+	// Build chain from tier-appropriate providers
+	chain := []string{}
+
+	// Prioritize tier-appropriate providers that are available
+	for _, provider := range tierProviders {
+		if _, exists := r.providers[provider]; exists {
+			if config.CanProviderHandleContext(provider, estimatedTokens) {
+				if !contains(chain, provider) {
+					chain = append(chain, provider)
+				}
+			}
+		}
+	}
+
+	// Add fallback order for any remaining providers (that can handle the context)
+	for _, provider := range r.config.GetFallbackOrder() {
+		if _, exists := r.providers[provider]; exists {
+			if config.CanProviderHandleContext(provider, estimatedTokens) {
+				if !contains(chain, provider) {
+					chain = append(chain, provider)
+				}
+			}
+		}
+	}
+
+	if len(chain) == 0 {
+		log.Printf("[AIRouter] Warning: No providers can handle %d tokens, using fallback", estimatedTokens)
+		return r.getProviderChain("")
+	}
+
+	return chain
+}
+
+// EstimateTokens estimates token count from messages
+func EstimateTokens(messages []ai.Message) int {
+	total := 0
+	for _, msg := range messages {
+		// Rough estimate: ~4 chars per token
+		total += len(msg.Content) / 4
+	}
+	return total
 }
 
 // GetAvailableProviders returns list of available providers
