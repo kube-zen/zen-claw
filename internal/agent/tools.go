@@ -1431,15 +1431,15 @@ func (t *PreviewWriteTool) Execute(ctx context.Context, args map[string]interfac
 	}
 
 	return map[string]interface{}{
-		"path":       path,
-		"existed":    existed,
-		"diff":       diff,
-		"old_lines":  oldLines,
-		"new_lines":  newLines,
-		"old_size":   len(existingContent),
-		"new_size":   len(content),
-		"action":     ternary(existed, "modify", "create"),
-		"preview":    true,
+		"path":        path,
+		"existed":     existed,
+		"diff":        diff,
+		"old_lines":   oldLines,
+		"new_lines":   newLines,
+		"old_size":    len(existingContent),
+		"new_size":    len(content),
+		"action":      ternary(existed, "modify", "create"),
+		"preview":     true,
 		"not_written": "Use write_file to apply these changes",
 	}, nil
 }
@@ -1543,10 +1543,10 @@ func (t *PreviewEditTool) Execute(ctx context.Context, args map[string]interface
 
 	if !replaceAll && count > 1 {
 		return map[string]interface{}{
-			"path":         path,
-			"error":        fmt.Sprintf("old_string found %d times, must be unique (or use replace_all)", count),
-			"occurrences":  count,
-			"preview":      true,
+			"path":        path,
+			"error":       fmt.Sprintf("old_string found %d times, must be unique (or use replace_all)", count),
+			"occurrences": count,
+			"preview":     true,
 		}, nil
 	}
 

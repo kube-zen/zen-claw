@@ -12,6 +12,7 @@ import (
 
 	"github.com/neves/zen-claw/internal/ai"
 	"github.com/neves/zen-claw/internal/cache"
+	"github.com/neves/zen-claw/internal/circuit"
 	"github.com/neves/zen-claw/internal/config"
 	"github.com/neves/zen-claw/internal/cost"
 	"github.com/neves/zen-claw/internal/providers"
@@ -26,6 +27,9 @@ type AIRouter struct {
 
 	// Response caching
 	cache *cache.Cache
+
+	// Circuit breakers for provider health
+	circuits *circuit.Manager
 
 	// Cost tracking
 	usageMu sync.Mutex
@@ -73,11 +77,20 @@ func NewAIRouter(cfg *config.Config) *AIRouter {
 	// Initialize response cache (1 hour TTL, 1000 entries max)
 	responseCache := cache.New(1*time.Hour, 1000, true)
 
+	// Initialize circuit breaker manager
+	circuitMgr := circuit.NewManager(circuit.Config{
+		ErrorThreshold:   0.5,              // 50% errors trips circuit
+		WindowSize:       10,               // Track last 10 requests
+		CooldownDuration: 30 * time.Second, // Wait 30s before retry
+		HalfOpenRequests: 2,                // 2 successes to recover
+	})
+
 	return &AIRouter{
 		config:    cfg,
 		factory:   factory,
 		providers: providersMap,
 		cache:     responseCache,
+		circuits:  circuitMgr,
 		usage:     cost.NewUsage(),
 	}
 }
@@ -108,15 +121,27 @@ func (r *AIRouter) Chat(ctx context.Context, req ai.ChatRequest, preferredProvid
 			continue
 		}
 
+		// Check circuit breaker
+		cb := r.circuits.Get(providerName)
+		if !cb.IsAvailable() {
+			log.Printf("[AIRouter] Skipping %s (circuit open)", providerName)
+			continue
+		}
+
 		log.Printf("[AIRouter] Trying provider: %s", providerName)
 
-		// Try this provider with retry
-		resp, err := r.callWithRetry(ctx, provider, providerName, req)
+		// Try this provider with circuit breaker + retry
+		var resp *ai.ChatResponse
+		err := cb.Call(ctx, func() error {
+			var callErr error
+			resp, callErr = r.callWithRetry(ctx, provider, providerName, req)
+			return callErr
+		})
+
 		if err == nil {
 			log.Printf("[AIRouter] Provider %s succeeded", providerName)
 
 			// Track cost (estimate tokens from content length)
-			// Rough estimate: 1 token ≈ 4 chars
 			inputTokens := 0
 			for _, msg := range req.Messages {
 				inputTokens += len(msg.Content) / 4
@@ -202,6 +227,11 @@ func (r *AIRouter) GetUsageSummary() string {
 // GetCacheStats returns cache statistics
 func (r *AIRouter) GetCacheStats() (hits, misses, size int, hitRate float64) {
 	return r.cache.Stats()
+}
+
+// GetCircuitStats returns circuit breaker statistics
+func (r *AIRouter) GetCircuitStats() map[string]map[string]interface{} {
+	return r.circuits.AllStats()
 }
 
 // getProviderChain returns provider chain based on preference and cost optimization

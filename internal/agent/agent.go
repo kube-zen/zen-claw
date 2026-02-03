@@ -386,7 +386,10 @@ func (a *Agent) executeToolCallsWithProgress(ctx context.Context, toolCalls []ai
 	// Execute read-only tools in parallel
 	if len(parallelCalls) > 0 {
 		log.Printf("[Agent] Executing %d read-only tools in parallel", len(parallelCalls))
-		a.emitProgress("tool_call", step, fmt.Sprintf("⚡ Running %d tools in parallel...", len(parallelCalls)), nil)
+		// Only show parallel indicator if more than 1 tool
+		if len(parallelCalls) > 1 {
+			a.emitProgress("tool_call", step, fmt.Sprintf("⚡ %d tools in parallel", len(parallelCalls)), nil)
+		}
 
 		var wg sync.WaitGroup
 		var mu sync.Mutex
@@ -423,15 +426,11 @@ func (a *Agent) executeSingleTool(ctx context.Context, call ai.ToolCall, step in
 
 	// Build argument summary for display
 	argSummary := a.summarizeArgs(call.Args)
-	a.emitProgress("tool_call", step, fmt.Sprintf("🔧 %s(%s)", call.Name, argSummary), map[string]interface{}{
-		"tool": call.Name,
-		"args": call.Args,
-	})
 
 	tool, exists := a.tools[call.Name]
 	if !exists {
 		errMsg := fmt.Sprintf("Tool '%s' not found", call.Name)
-		a.emitProgress("tool_result", step, fmt.Sprintf("❌ %s", errMsg), nil)
+		a.emitProgress("tool_call", step, fmt.Sprintf("🔧 %s(%s) ❌ not found", call.Name, argSummary), nil)
 		return ToolResult{
 			ToolCallID: call.ID,
 			Content:    fmt.Sprintf("Error: %s", errMsg),
@@ -442,10 +441,9 @@ func (a *Agent) executeSingleTool(ctx context.Context, call ai.ToolCall, step in
 	// Execute tool
 	result, err := tool.Execute(ctx, call.Args)
 	if err != nil {
-		errMsg := fmt.Sprintf("Error executing %s: %v", call.Name, err)
-		a.emitProgress("tool_result", step, fmt.Sprintf("❌ %s", errMsg), nil)
+		a.emitProgress("tool_call", step, fmt.Sprintf("🔧 %s(%s) ❌ %v", call.Name, argSummary, err), nil)
 		errorResult := map[string]interface{}{
-			"error": errMsg,
+			"error": fmt.Sprintf("Error executing %s: %v", call.Name, err),
 		}
 		errorJSON, _ := json.Marshal(errorResult)
 		return ToolResult{
@@ -467,9 +465,9 @@ func (a *Agent) executeSingleTool(ctx context.Context, call ai.ToolCall, step in
 		}
 	}
 
-	// Emit success with truncated result
+	// Emit combined tool call + result (compact format)
 	resultSummary := a.summarizeResult(string(resultJSON))
-	a.emitProgress("tool_result", step, fmt.Sprintf("✓ %s → %s", call.Name, resultSummary), nil)
+	a.emitProgress("tool_call", step, fmt.Sprintf("🔧 %s(%s) → %s", call.Name, argSummary, resultSummary), nil)
 
 	log.Printf("[Agent] Tool %s completed", call.Name)
 

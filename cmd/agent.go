@@ -807,36 +807,41 @@ func isModelCompatibleWithProvider(modelName, provider string) bool {
 	return true
 }
 
-// displayProgressEvent prints a progress event to the console with nice formatting
+// displayProgressEvent prints a progress event to the console with minimal formatting
 func displayProgressEvent(event ProgressEvent) {
 	switch event.Type {
 	case "start":
-		fmt.Printf("🚀 %s\n", event.Message)
+		// Skip - already shown in header
 	case "step":
-		fmt.Printf("\n📍 %s\n", event.Message)
+		// Show compact step indicator
+		fmt.Printf("\n[%d] ", event.Step)
 	case "thinking":
-		fmt.Printf("   💭 %s\n", event.Message)
+		// Skip - not useful to show
 	case "ai_response":
-		// Truncate long AI responses in progress display
+		// Show brief AI intent (first line only, truncated)
 		msg := event.Message
-		if len(msg) > 200 {
-			msg = msg[:197] + "..."
+		if idx := strings.Index(msg, "\n"); idx > 0 {
+			msg = msg[:idx]
 		}
-		fmt.Printf("   🤖 %s\n", msg)
+		if len(msg) > 80 {
+			msg = msg[:77] + "..."
+		}
+		if msg != "" {
+			fmt.Printf("%s\n", msg)
+		}
 	case "tool_call":
-		fmt.Printf("   %s\n", event.Message)
+		// Show tool call compactly
+		fmt.Printf("    %s\n", event.Message)
 	case "tool_result":
-		fmt.Printf("   %s\n", event.Message)
+		// Skip detailed results - tool_call already shows summary
 	case "complete":
-		fmt.Printf("\n✅ %s\n", event.Message)
+		fmt.Printf("\n✅ Done (%d steps)\n", event.Step)
 	case "error":
 		fmt.Printf("\n❌ %s\n", event.Message)
 	case "done":
 		// Final result will be displayed separately
 	default:
-		if event.Message != "" {
-			fmt.Printf("   %s\n", event.Message)
-		}
+		// Skip unknown events
 	}
 }
 
