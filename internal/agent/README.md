@@ -1,26 +1,26 @@
 # zen-agent - Go Agent Library
 
-Inspired by pi-coding-agent architecture, providing:
+Provides:
 - Tool execution loop with conversation continuation
-- Session management
-- Multiple AI provider support
-- Extensible tool system
+- Session management (SQLite persistence)
+- Multiple AI provider support with circuit breaker
+- Extensible tool system + MCP integration
 
 ## Architecture
 
 ```
 Agent (core loop)
-├── Session (state management)
-├── Tools (21 tools)
+├── Session (SQLite persistence)
+├── Tools (20+)
 │   ├── File: exec, read_file, write_file, edit_file, append_file, list_dir, search_files, system_info
 │   ├── Git: git_status, git_diff, git_add, git_commit, git_push, git_log
 │   ├── Preview: preview_write, preview_edit
 │   ├── Web: web_search, web_fetch
 │   ├── Process: process (background exec management)
 │   ├── Patch: apply_patch (multi-file)
-│   └── Subagent: subagent (parallel background runs)
+│   └── MCP: External tools via Model Context Protocol
 ├── Providers (DeepSeek, OpenAI, GLM, Minimax, Qwen, Kimi)
-└── SessionManager (persistence)
+└── Circuit Breaker (auto-disable unhealthy providers)
 ```
 
 ## Usage
