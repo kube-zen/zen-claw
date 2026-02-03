@@ -12,7 +12,7 @@ A Go-based AI agent system with multi-provider support, real-time progress strea
 ## Features
 
 ### Real-Time Progress Streaming
-See exactly what the AI is doing as it works:
+See exactly what the AI is doing as it works (via SSE or WebSocket):
 ```
 🚀 Starting with deepseek/deepseek-chat
 
@@ -30,6 +30,18 @@ See exactly what the AI is doing as it works:
 
 ✅ Task completed
 ```
+
+### WebSocket Support
+Bidirectional communication for real-time interaction:
+```bash
+# Use WebSocket instead of SSE
+./zen-claw agent --ws "analyze this codebase"
+```
+
+WebSocket enables:
+- Cancel running tasks
+- Multiple requests per connection
+- Lower latency for interactive use
 
 ### Multi-Provider AI Support
 Six AI providers with automatic fallback:
@@ -172,6 +184,7 @@ export QWEN_API_KEY="sk-..."
 | GET | `/health` | Health check |
 | POST | `/chat` | Send chat request (blocking) |
 | POST | `/chat/stream` | Chat with SSE progress streaming |
+| GET | `/ws` | WebSocket (bidirectional) |
 | GET | `/sessions` | List all sessions |
 | GET | `/sessions/{id}` | Get session details |
 | DELETE | `/sessions/{id}` | Delete session |
@@ -230,6 +243,7 @@ zen-claw completion fish | source
 
 - [x] Multi-provider AI support (6 providers)
 - [x] Real-time SSE progress streaming
+- [x] **WebSocket support** - Bidirectional communication with cancel support
 - [x] Session persistence and management
 - [x] Tool system (8 tools: exec, read, write, edit, append, list, search, sysinfo)
 - [x] Interactive CLI with readline

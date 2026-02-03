@@ -123,6 +123,78 @@ curl -N -X POST http://localhost:8080/chat/stream \
 
 ---
 
+### WebSocket
+Bidirectional communication for real-time interaction.
+
+**Endpoint:** `GET /ws` (WebSocket upgrade)
+
+**Connection:**
+```javascript
+const ws = new WebSocket('ws://localhost:8080/ws');
+```
+
+**Message Format:**
+```json
+{
+  "type": "string",      // Message type
+  "id": "string",        // Request ID for matching responses
+  "data": {}             // Payload (type-specific)
+}
+```
+
+**Client → Server Messages:**
+
+| Type | Description | Data Fields |
+|------|-------------|-------------|
+| `chat` | Send chat request | `session_id`, `user_input`, `working_dir`, `provider`, `model`, `max_steps` |
+| `cancel` | Cancel current task | (none) |
+| `ping` | Keep-alive ping | (none) |
+| `sessions` | List sessions | (none) |
+| `session` | Get/delete session | `session_id`, `action` ("get" or "delete") |
+
+**Server → Client Messages:**
+
+| Type | Description | Data Fields |
+|------|-------------|-------------|
+| `connected` | Connection established | `message`, `version` |
+| `progress` | Task progress event | `type`, `step`, `message`, `data` |
+| `result` | Task completed | `session_id`, `result`, `session_info` |
+| `error` | Error occurred | `error` |
+| `cancelled` | Task cancelled | `message` |
+| `pong` | Ping response | (none) |
+| `sessions` | Session list | `sessions`, `count` |
+| `session` | Session details | (session stats) |
+
+**Example Chat Flow:**
+```json
+// Client sends
+{"type": "chat", "id": "msg_1", "data": {"user_input": "hello", "provider": "deepseek"}}
+
+// Server sends progress events
+{"type": "progress", "id": "msg_1", "data": {"type": "start", "message": "Starting..."}}
+{"type": "progress", "id": "msg_1", "data": {"type": "step", "step": 1, "message": "Thinking..."}}
+
+// Server sends result
+{"type": "result", "id": "msg_1", "data": {"session_id": "...", "result": "Hello!", "session_info": {...}}}
+```
+
+**Example Cancel:**
+```json
+// Client sends
+{"type": "cancel"}
+
+// Server responds
+{"type": "cancelled", "id": "msg_1", "data": {"message": "Task cancelled"}}
+```
+
+**CLI Usage:**
+```bash
+# Use WebSocket instead of SSE
+./zen-claw agent --ws "analyze codebase"
+```
+
+---
+
 ### List Sessions
 Get all sessions with their state.
 

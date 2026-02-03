@@ -20,6 +20,7 @@ func newAgentCmd() *cobra.Command {
 	var showProgress bool
 	var maxSteps int
 	var verbose bool
+	var useWebSocket bool
 
 	cmd := &cobra.Command{
 		Use:   "agent",
@@ -40,6 +41,9 @@ Examples:
   
   # Resume a named session
   zen-claw agent --session my-project "continue from before"
+  
+  # Use WebSocket for bidirectional communication
+  zen-claw agent --ws "analyze codebase"
 
 Multi-AI modes (separate commands):
   zen-claw consensus   # 3 AIs → arbiter → better blueprints
@@ -50,7 +54,7 @@ Multi-AI modes (separate commands):
 			if len(args) > 0 {
 				task = args[0]
 			}
-			runAgent(task, model, provider, workingDir, sessionID, showProgress, maxSteps, verbose)
+			runAgent(task, model, provider, workingDir, sessionID, showProgress, maxSteps, verbose, useWebSocket)
 		},
 	}
 
@@ -61,19 +65,26 @@ Multi-AI modes (separate commands):
 	cmd.Flags().BoolVar(&showProgress, "progress", false, "Show progress in console (CLI only)")
 	cmd.Flags().IntVar(&maxSteps, "max-steps", 100, "Maximum tool execution steps (default 100 for complex tasks)")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Enable verbose output for debugging")
+	cmd.Flags().BoolVar(&useWebSocket, "ws", false, "Use WebSocket instead of SSE streaming")
 
 	return cmd
 }
 
-func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool) {
+func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool, useWebSocket bool) {
 	// Interactive mode if no task provided
 	if task == "" {
-		runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID, showProgress, maxSteps, verbose)
+		runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID, showProgress, maxSteps, verbose, useWebSocket)
 		return
 	}
 
 	if verbose {
 		fmt.Println("🔧 Verbose mode enabled")
+	}
+
+	// Use WebSocket if requested
+	if useWebSocket {
+		runAgentWebSocket(task, modelFlag, providerFlag, workingDir, sessionID, maxSteps, verbose)
+		return
 	}
 
 	if showProgress {
@@ -203,8 +214,11 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 }
 
 // runInteractiveMode runs the agent in interactive mode
-func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool) {
+func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool, useWebSocket bool) {
 	fmt.Println("🚀 Zen Agent")
+	if useWebSocket {
+		fmt.Println("(WebSocket mode)")
+	}
 	fmt.Println("═" + strings.Repeat("═", 78))
 
 	// Show session info
@@ -805,6 +819,113 @@ func displayProgressEvent(event ProgressEvent) {
 	default:
 		if event.Message != "" {
 			fmt.Printf("   %s\n", event.Message)
+		}
+	}
+}
+
+// runAgentWebSocket runs the agent using WebSocket connection
+func runAgentWebSocket(task, modelFlag, providerFlag, workingDir, sessionID string, maxSteps int, verbose bool) {
+	fmt.Println("🚀 Zen Agent (WebSocket)")
+	fmt.Println("═" + strings.Repeat("═", 78))
+	fmt.Printf("Task: %s\n", task)
+	fmt.Printf("Working directory: %s\n", workingDir)
+
+	// Connect via WebSocket
+	wsURL := "ws://localhost:8080/ws"
+	if verbose {
+		fmt.Printf("Connecting to %s...\n", wsURL)
+	}
+
+	client, err := NewWSClient(wsURL)
+	if err != nil {
+		fmt.Printf("\n❌ WebSocket connection failed: %v\n", err)
+		fmt.Println("   Start the gateway first: zen-claw gateway start")
+		os.Exit(1)
+	}
+	defer client.Close()
+
+	fmt.Println("✓ WebSocket connected")
+
+	// Determine provider and model
+	providerName := providerFlag
+	modelName := modelFlag
+
+	if modelName != "" && providerName == "" {
+		providerName = inferProviderFromModel(modelName)
+	}
+	if providerName == "" {
+		providerName = "deepseek"
+	}
+	if modelName == "" {
+		switch providerName {
+		case "deepseek":
+			modelName = "deepseek-chat"
+		case "qwen":
+			modelName = "qwen3-coder-30b-a3b-instruct"
+		case "glm":
+			modelName = "glm-4.7"
+		case "minimax":
+			modelName = "minimax-M2.1"
+		case "openai":
+			modelName = "gpt-4o-mini"
+		case "kimi":
+			modelName = "kimi-k2-5"
+		default:
+			modelName = "deepseek-chat"
+		}
+	}
+
+	fmt.Printf("Provider: %s, Model: %s\n", providerName, modelName)
+	fmt.Println()
+
+	// Create request
+	req := WSChatRequest{
+		SessionID:  sessionID,
+		UserInput:  task,
+		WorkingDir: workingDir,
+		Provider:   providerName,
+		Model:      modelName,
+		MaxSteps:   maxSteps,
+	}
+
+	// Run chat with progress
+	var finalResp *ChatResponse
+	var finalErr error
+	done := make(chan struct{})
+
+	go func() {
+		client.Chat(req, func(event ProgressEvent) {
+			displayProgressEvent(event)
+		}, func(resp *ChatResponse, err error) {
+			finalResp = resp
+			finalErr = err
+			close(done)
+		})
+	}()
+
+	// Wait for completion
+	<-done
+
+	if finalErr != nil {
+		fmt.Printf("\n❌ Agent error: %v\n", finalErr)
+		os.Exit(1)
+	}
+
+	// Print result
+	fmt.Println("\n" + strings.Repeat("═", 80))
+	fmt.Println("🎯 RESULT (via WebSocket)")
+	fmt.Println(strings.Repeat("═", 80))
+	fmt.Println(finalResp.Result)
+	fmt.Println(strings.Repeat("═", 80))
+
+	// Print session info
+	if finalResp.SessionInfo != nil {
+		fmt.Printf("\n📊 Session Information:\n")
+		if sid, ok := finalResp.SessionInfo["session_id"].(string); ok {
+			fmt.Printf("   Session ID: %s\n", sid)
+		}
+		if msgCount, ok := finalResp.SessionInfo["message_count"].(float64); ok {
+			fmt.Printf("   Messages: %.0f total\n", msgCount)
 		}
 	}
 }

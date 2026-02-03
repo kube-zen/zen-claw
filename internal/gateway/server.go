@@ -38,6 +38,7 @@ func NewServer(cfg *config.Config) *Server {
 	mux.HandleFunc("/health", srv.healthHandler)
 	mux.HandleFunc("/chat", srv.chatHandler)
 	mux.HandleFunc("/chat/stream", srv.streamChatHandler) // SSE streaming endpoint
+	mux.HandleFunc("/ws", srv.wsHandler)                  // WebSocket endpoint
 	mux.HandleFunc("/sessions", srv.sessionsHandler)
 	mux.HandleFunc("/sessions/", srv.sessionHandler)
 	mux.HandleFunc("/preferences", srv.preferencesHandler)
@@ -546,6 +547,7 @@ func (s *Server) defaultHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "  GET  /health                    - Health check\n")
 	fmt.Fprintf(w, "  POST /chat                      - Chat with AI (JSON)\n")
 	fmt.Fprintf(w, "  POST /chat/stream               - Chat with AI (SSE streaming)\n")
+	fmt.Fprintf(w, "  GET  /ws                        - WebSocket (bidirectional)\n")
 	fmt.Fprintf(w, "  GET  /sessions                  - List sessions with state\n")
 	fmt.Fprintf(w, "  GET  /sessions/{id}             - Get session details\n")
 	fmt.Fprintf(w, "  DELETE /sessions/{id}           - Delete session\n")
