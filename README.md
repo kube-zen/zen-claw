@@ -43,6 +43,21 @@ WebSocket enables:
 - Multiple requests per connection
 - Lower latency for interactive use
 
+### Slack Integration
+Interact with the AI agent directly from Slack:
+```bash
+# Start the Slack bot
+export SLACK_BOT_TOKEN="xoxb-..."
+export SLACK_APP_TOKEN="xapp-..."
+./zen-claw slack
+```
+
+Slack features:
+- Thread-based sessions (each thread = separate context)
+- Real-time progress updates
+- Session management commands (`/status`, `/sessions`, `/attach`, `/clear`)
+- Provider/model switching (`/provider`, `/model`)
+
 ### Multi-Provider AI Support
 Six AI providers with automatic fallback:
 
@@ -243,7 +258,8 @@ zen-claw completion fish | source
 
 - [x] Multi-provider AI support (6 providers)
 - [x] Real-time SSE progress streaming
-- [x] **WebSocket support** - Bidirectional communication with cancel support
+- [x] WebSocket support - Bidirectional communication with cancel support
+- [x] **Slack integration** - Thread-based sessions, progress streaming, commands
 - [x] Session persistence and management
 - [x] Tool system (8 tools: exec, read, write, edit, append, list, search, sysinfo)
 - [x] Interactive CLI with readline
@@ -254,20 +270,21 @@ zen-claw completion fish | source
 - [x] **Factory mode** - Coordinator + specialist AIs for complex projects
 - [x] **Guardrails** - Safety limits (cost, time, files, phases)
 - [x] **Simplified sessions** - Fresh by default (like Cursor), named sessions opt-in
+- [x] **Response caching** - In-memory cache with TTL (30-50% cost savings)
+- [x] **Retry/backoff** - Auto-retry failed AI calls with exponential backoff
+- [x] **Token usage tracking** - `/stats` command shows cost per session
 
 ### Short Term (Next)
 
-- [ ] **Response caching** - Cache identical prompts/tool outputs (30-50% cost savings)
-- [ ] **Parallel tool execution** - Execute independent tools concurrently
-- [ ] **Retry/backoff** - Auto-retry failed AI calls with exponential backoff
-- [ ] **Token usage tracking** - Show cost per request/session
+- [ ] **Parallel tool execution** - Execute independent tools concurrently (2-5x speedup)
+- [ ] **Git tools** - Built-in git status, diff, commit, push tools
+- [ ] **Diff display** - Show file changes before writing
 
 ### Medium Term
 
-- [ ] **Git integration** - Built-in git tools (status, diff, commit)
-- [ ] **Diff display** - Show file changes before writing
 - [ ] **MCP protocol support** - Integrate Model Context Protocol tools
 - [ ] **Streaming responses** - Token-by-token AI response display
+- [ ] **Circuit breaker** - Provider health tracking, auto-disable unhealthy
 
 ### Long Term
 

@@ -453,3 +453,13 @@ func (s *AgentService) inferProviderFromModel(modelName string) string {
 	// Default to empty (will use default provider)
 	return ""
 }
+
+// GetUsageSummary returns AI usage summary (tokens, cost)
+func (s *AgentService) GetUsageSummary() string {
+	return s.aiRouter.GetUsageSummary()
+}
+
+// GetCacheStats returns cache hit/miss statistics
+func (s *AgentService) GetCacheStats() (hits, misses, size int, hitRate float64) {
+	return s.aiRouter.GetCacheStats()
+}

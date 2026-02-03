@@ -229,7 +229,7 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 	}
 	fmt.Printf("Working directory: %s\n", workingDir)
 	fmt.Println()
-	fmt.Println("Commands: /models, /model <name>, /provider <name>, /clear, /help, /exit")
+	fmt.Println("Commands: /models, /model <name>, /provider <name>, /stats, /clear, /help, /exit")
 	fmt.Println("═" + strings.Repeat("═", 78))
 
 	// Create gateway client
@@ -325,6 +325,7 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 		case input == "/help":
 			fmt.Println("\nCommands:")
 			fmt.Println("  /clear              - Clear conversation history (fresh start)")
+			fmt.Println("  /stats              - Show usage and cache statistics")
 			fmt.Println("  /models             - List available models")
 			fmt.Println("  /model <name>       - Switch to a different model")
 			fmt.Println("  /provider <name>    - Switch provider (deepseek, qwen, minimax, kimi)")
@@ -340,6 +341,22 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			// Clear conversation - start fresh (like Cursor Cmd+N)
 			sessionID = "" // Force new session
 			fmt.Println("✓ Cleared. Fresh context.")
+			continue
+
+		case input == "/stats":
+			// Show usage and cache statistics
+			stats, err := client.GetStats()
+			if err != nil {
+				fmt.Printf("❌ Error: %v\n", err)
+				continue
+			}
+			fmt.Println("\n📊 Statistics:")
+			fmt.Println(strings.Repeat("─", 50))
+			fmt.Printf("Usage: %s\n", stats.Usage)
+			fmt.Printf("Cache: %d hits, %d misses (%.1f%% hit rate)\n",
+				stats.CacheHits, stats.CacheMisses, stats.CacheHitRate*100)
+			fmt.Printf("Cache size: %d entries\n", stats.CacheSize)
+			fmt.Println(strings.Repeat("─", 50))
 			continue
 
 		// Simplified session commands - only show saved (named) sessions

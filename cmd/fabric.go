@@ -93,10 +93,10 @@ type FabricSession struct {
 
 // FabricExchange represents one task execution
 type FabricExchange struct {
-	Task           string
-	WorkerOutputs  map[string]string
-	CoordReview    string
-	Timestamp      time.Time
+	Task          string
+	WorkerOutputs map[string]string
+	CoordReview   string
+	Timestamp     time.Time
 }
 
 // runFabricInteractive runs the fabric session in interactive mode

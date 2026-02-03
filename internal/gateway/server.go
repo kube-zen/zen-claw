@@ -43,6 +43,7 @@ func NewServer(cfg *config.Config) *Server {
 	mux.HandleFunc("/sessions/", srv.sessionHandler)
 	mux.HandleFunc("/preferences", srv.preferencesHandler)
 	mux.HandleFunc("/preferences/", srv.preferencesHandler)
+	mux.HandleFunc("/stats", srv.statsHandler) // Usage and cache stats
 	mux.HandleFunc("/", srv.defaultHandler)
 
 	srv.server = &http.Server{
@@ -156,6 +157,28 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 		"timestamp": time.Now().Format(time.RFC3339),
 		"gateway":   "zen-claw",
 		"version":   "0.1.0",
+	})
+}
+
+// statsHandler returns usage and cache statistics
+func (s *Server) statsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	hits, misses, size, hitRate := s.agentService.GetCacheStats()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"usage": s.agentService.GetUsageSummary(),
+		"cache": map[string]interface{}{
+			"hits":     hits,
+			"misses":   misses,
+			"size":     size,
+			"hit_rate": hitRate,
+		},
+		"timestamp": time.Now().Format(time.RFC3339),
 	})
 }
 

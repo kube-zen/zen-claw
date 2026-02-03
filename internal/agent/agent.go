@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/neves/zen-claw/internal/ai"
@@ -347,77 +348,136 @@ func (a *Agent) executeToolCalls(ctx context.Context, toolCalls []ai.ToolCall) (
 	return a.executeToolCallsWithProgress(ctx, toolCalls, 0)
 }
 
-// executeToolCallsWithProgress executes all tool calls with progress events
+// isReadOnlyTool returns true if the tool is safe for parallel execution
+func isReadOnlyTool(name string) bool {
+	readOnly := map[string]bool{
+		"read_file":    true,
+		"list_dir":     true,
+		"search_files": true,
+		"system_info":  true,
+	}
+	return readOnly[name]
+}
+
+// executeToolCallsWithProgress executes tool calls with parallel execution for read-only tools
 func (a *Agent) executeToolCallsWithProgress(ctx context.Context, toolCalls []ai.ToolCall, step int) ([]ToolResult, error) {
-	var results []ToolResult
+	if len(toolCalls) == 0 {
+		return nil, nil
+	}
 
-	for i, call := range toolCalls {
-		log.Printf("[Agent] Executing tool: %s", call.Name)
+	// Separate into parallel-safe (read-only) and sequential (write) tools
+	var parallelCalls []ai.ToolCall
+	var sequentialCalls []ai.ToolCall
 
-		// Build argument summary for display
-		argSummary := a.summarizeArgs(call.Args)
-		a.emitProgress("tool_call", step, fmt.Sprintf("🔧 %s(%s)", call.Name, argSummary), map[string]interface{}{
-			"tool":       call.Name,
-			"args":       call.Args,
-			"tool_num":   i + 1,
-			"tool_total": len(toolCalls),
-		})
-
-		tool, exists := a.tools[call.Name]
-		if !exists {
-			errMsg := fmt.Sprintf("Tool '%s' not found", call.Name)
-			a.emitProgress("tool_result", step, fmt.Sprintf("❌ %s", errMsg), nil)
-			results = append(results, ToolResult{
-				ToolCallID: call.ID,
-				Content:    fmt.Sprintf("Error: %s", errMsg),
-				IsError:    true,
-			})
-			continue
-		}
-
-		// Execute tool
-		result, err := tool.Execute(ctx, call.Args)
-		if err != nil {
-			errMsg := fmt.Sprintf("Error executing %s: %v", call.Name, err)
-			a.emitProgress("tool_result", step, fmt.Sprintf("❌ %s", errMsg), nil)
-			errorResult := map[string]interface{}{
-				"error": errMsg,
-			}
-			errorJSON, _ := json.Marshal(errorResult)
-			results = append(results, ToolResult{
-				ToolCallID: call.ID,
-				Content:    string(errorJSON),
-				IsError:    true,
-			})
-			continue
-		}
-
-		// Convert result to JSON string to preserve structure
-		resultJSON, err := json.Marshal(result)
-		if err != nil {
-			// Fallback to string representation
-			resultStr := fmt.Sprintf("%v", result)
-			results = append(results, ToolResult{
-				ToolCallID: call.ID,
-				Content:    resultStr,
-				IsError:    false,
-			})
+	for _, call := range toolCalls {
+		if isReadOnlyTool(call.Name) {
+			parallelCalls = append(parallelCalls, call)
 		} else {
-			results = append(results, ToolResult{
-				ToolCallID: call.ID,
-				Content:    string(resultJSON),
-				IsError:    false,
-			})
+			sequentialCalls = append(sequentialCalls, call)
+		}
+	}
+
+	results := make([]ToolResult, len(toolCalls))
+	resultIndex := make(map[string]int) // Map tool call ID to result index
+	for i, call := range toolCalls {
+		resultIndex[call.ID] = i
+	}
+
+	// Execute read-only tools in parallel
+	if len(parallelCalls) > 0 {
+		log.Printf("[Agent] Executing %d read-only tools in parallel", len(parallelCalls))
+		a.emitProgress("tool_call", step, fmt.Sprintf("⚡ Running %d tools in parallel...", len(parallelCalls)), nil)
+
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+
+		for _, call := range parallelCalls {
+			wg.Add(1)
+			go func(call ai.ToolCall) {
+				defer wg.Done()
+
+				result := a.executeSingleTool(ctx, call, step)
+
+				mu.Lock()
+				results[resultIndex[call.ID]] = result
+				mu.Unlock()
+			}(call)
 		}
 
-		// Emit success with truncated result
-		resultSummary := a.summarizeResult(string(resultJSON))
-		a.emitProgress("tool_result", step, fmt.Sprintf("✓ %s → %s", call.Name, resultSummary), nil)
+		wg.Wait()
+		log.Printf("[Agent] Parallel execution complete")
+	}
 
-		log.Printf("[Agent] Tool %s completed", call.Name)
+	// Execute write tools sequentially
+	for _, call := range sequentialCalls {
+		result := a.executeSingleTool(ctx, call, step)
+		results[resultIndex[call.ID]] = result
 	}
 
 	return results, nil
+}
+
+// executeSingleTool executes a single tool call and returns the result
+func (a *Agent) executeSingleTool(ctx context.Context, call ai.ToolCall, step int) ToolResult {
+	log.Printf("[Agent] Executing tool: %s", call.Name)
+
+	// Build argument summary for display
+	argSummary := a.summarizeArgs(call.Args)
+	a.emitProgress("tool_call", step, fmt.Sprintf("🔧 %s(%s)", call.Name, argSummary), map[string]interface{}{
+		"tool": call.Name,
+		"args": call.Args,
+	})
+
+	tool, exists := a.tools[call.Name]
+	if !exists {
+		errMsg := fmt.Sprintf("Tool '%s' not found", call.Name)
+		a.emitProgress("tool_result", step, fmt.Sprintf("❌ %s", errMsg), nil)
+		return ToolResult{
+			ToolCallID: call.ID,
+			Content:    fmt.Sprintf("Error: %s", errMsg),
+			IsError:    true,
+		}
+	}
+
+	// Execute tool
+	result, err := tool.Execute(ctx, call.Args)
+	if err != nil {
+		errMsg := fmt.Sprintf("Error executing %s: %v", call.Name, err)
+		a.emitProgress("tool_result", step, fmt.Sprintf("❌ %s", errMsg), nil)
+		errorResult := map[string]interface{}{
+			"error": errMsg,
+		}
+		errorJSON, _ := json.Marshal(errorResult)
+		return ToolResult{
+			ToolCallID: call.ID,
+			Content:    string(errorJSON),
+			IsError:    true,
+		}
+	}
+
+	// Convert result to JSON string to preserve structure
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		// Fallback to string representation
+		resultStr := fmt.Sprintf("%v", result)
+		return ToolResult{
+			ToolCallID: call.ID,
+			Content:    resultStr,
+			IsError:    false,
+		}
+	}
+
+	// Emit success with truncated result
+	resultSummary := a.summarizeResult(string(resultJSON))
+	a.emitProgress("tool_result", step, fmt.Sprintf("✓ %s → %s", call.Name, resultSummary), nil)
+
+	log.Printf("[Agent] Tool %s completed", call.Name)
+
+	return ToolResult{
+		ToolCallID: call.ID,
+		Content:    string(resultJSON),
+		IsError:    false,
+	}
 }
 
 // summarizeArgs creates a short summary of tool arguments for display

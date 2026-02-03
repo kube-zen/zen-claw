@@ -179,6 +179,51 @@ type SessionEntry struct {
 	LastUsed          string `json:"last_used"`
 }
 
+// StatsResponse represents statistics from the gateway
+type StatsResponse struct {
+	Usage        string  `json:"usage"`
+	CacheHits    int     `json:"cache_hits"`
+	CacheMisses  int     `json:"cache_misses"`
+	CacheSize    int     `json:"cache_size"`
+	CacheHitRate float64 `json:"cache_hit_rate"`
+}
+
+// GetStats retrieves usage and cache statistics
+func (gc *GatewayClient) GetStats() (*StatsResponse, error) {
+	url := fmt.Sprintf("%s/stats", gc.baseURL)
+
+	resp, err := gc.client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get stats: %d", resp.StatusCode)
+	}
+
+	var raw struct {
+		Usage string `json:"usage"`
+		Cache struct {
+			Hits    int     `json:"hits"`
+			Misses  int     `json:"misses"`
+			Size    int     `json:"size"`
+			HitRate float64 `json:"hit_rate"`
+		} `json:"cache"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, err
+	}
+
+	return &StatsResponse{
+		Usage:        raw.Usage,
+		CacheHits:    raw.Cache.Hits,
+		CacheMisses:  raw.Cache.Misses,
+		CacheSize:    raw.Cache.Size,
+		CacheHitRate: raw.Cache.HitRate,
+	}, nil
+}
+
 // ListSessions lists all sessions from the gateway
 func (gc *GatewayClient) ListSessions() (*SessionListResponse, error) {
 	url := fmt.Sprintf("%s/sessions", gc.baseURL)
