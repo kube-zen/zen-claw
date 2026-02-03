@@ -94,12 +94,13 @@ sessions:
 ./zen-claw agent
 
 # Commands available:
-# /providers        - List providers
 # /provider kimi    - Switch provider
-# /models          - List models
 # /model kimi-k2-5  - Switch model
-# /help            - Show help
-# /exit            - Exit
+# /think high       - Enable deep reasoning (off/low/medium/high)
+# /stats            - Show usage and cache stats
+# /clear            - Fresh context
+# /help             - Show all commands
+# /exit             - Exit
 ```
 
 ### Session Management
