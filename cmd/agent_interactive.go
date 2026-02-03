@@ -30,7 +30,7 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 	}
 	fmt.Printf("Working directory: %s\n", workingDir)
 	fmt.Println()
-	fmt.Println("Commands: /help, /sessions, /models, /provider, /stats, /clear, /exit")
+	fmt.Println("Commands: /help, /session list, /session load, /models, /provider, /exit")
 	fmt.Println("═" + strings.Repeat("═", 78))
 
 	// Thinking level for reasoning-capable models
@@ -322,11 +322,14 @@ func printInteractiveHelp() {
 	fmt.Println("  /provider <name>    - Switch provider (deepseek, qwen, minimax, kimi)")
 	fmt.Println("  /think [level]      - Set thinking level (off, low, medium, high)")
 	fmt.Println("  /context-limit [n]  - Set context limit (0=unlimited)")
-	fmt.Println("  /sessions           - List saved sessions")
-	fmt.Println("  /sessions info      - Show storage info (path, size)")
-	fmt.Println("  /sessions clean     - Clean sessions (--all or --older 7d)")
-	fmt.Println("  /sessions delete <n>- Delete a specific session")
-	fmt.Println("  /load <name>        - Load a saved session")
+	fmt.Println()
+	fmt.Println("Session management:")
+	fmt.Println("  /session list       - List saved sessions")
+	fmt.Println("  /session load <n>   - Switch to a saved session")
+	fmt.Println("  /session info       - Show storage info (path, size)")
+	fmt.Println("  /session clean      - Clean sessions (--all or --older 7d)")
+	fmt.Println("  /session delete <n> - Delete a specific session")
+	fmt.Println()
 	fmt.Println("  /exit               - Exit")
 	fmt.Println()
 	fmt.Println("Multi-AI modes (separate commands):")
