@@ -40,8 +40,6 @@ func newToolsCmd() *cobra.Command {
 				agent.NewProcessTool("."),
 				// Multi-file patches
 				agent.NewApplyPatchTool("."),
-				// Subagents (parallel background runs)
-				agent.NewSubagentTool(nil, ""), // Manager added at runtime
 			}
 
 			fmt.Println("Available Tools:")
