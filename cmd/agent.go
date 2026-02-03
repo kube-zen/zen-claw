@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"errors"
+
 	"bufio"
 	"fmt"
 	"io"
@@ -14,6 +16,42 @@ import (
 )
 
 // Global variables for thinking cursor
+// Session cleanup function
+func cleanupOldSessions() {
+    sessionsDir := "/tmp/zen-claw-sessions"
+    if _, err := os.Stat(sessionsDir); os.IsNotExist(err) {
+        return
+    }
+    
+    files, err := os.ReadDir(sessionsDir)
+    if err != nil {
+        return
+    }
+    
+    // Clean up sessions older than 7 days
+    cutoffTime := time.Now().Add(-7 * 24 * time.Hour)
+    
+    for _, file := range files {
+        if file.IsDir() {
+            fullPath := filepath.Join(sessionsDir, file.Name())
+            fileInfo, err := file.Info()
+            if err == nil && fileInfo.ModTime().Before(cutoffTime) {
+                os.RemoveAll(fullPath)
+            }
+        }
+    }
+}
+
+// Session ID validation function
+func validateSessionID(sessionID string) string {
+    if sessionID == "" {
+        return fmt.Sprintf("sess-%d", time.Now().Unix())
+    }
+    if len(sessionID) < 5 {
+        return fmt.Sprintf("sess-%d", time.Now().Unix())
+    }
+    return sessionID
+}
 var thinkingCursorActive = false
 var thinkingCursorTicker *time.Ticker
 var thinkingCursorStop chan bool
@@ -686,4 +724,49 @@ func stopThinkingCursor() {
 		thinkingCursorActive = false
 		thinkingCursorStop <- true
 	}
+}
+
+// Enhanced tool error handling
+func handleToolError(toolName string, err error) error {
+    errorMsg := fmt.Sprintf("Tool '%s' failed: %v", toolName, err)
+    if strings.Contains(err.Error(), "permission denied") {
+        errorMsg += "\n💡 Try running with appropriate permissions"
+    } else if strings.Contains(err.Error(), "no such file") {
+        errorMsg += "\n💡 Check that the file/path exists"
+    }
+    return errors.New(errorMsg)
+}
+
+// Tool input validation
+func validateToolArgs(toolName string, args []string) error {
+    switch toolName {
+    case "read":
+        if len(args) != 1 {
+            return fmt.Errorf("read requires exactly one argument (file path)")
+        }
+    case "write":
+        if len(args) < 2 {
+            return fmt.Errorf("write requires at least two arguments (file path and content)")
+        }
+    case "exec":
+        if len(args) == 0 {
+            return fmt.Errorf("exec requires at least one command argument")
+        }
+    }
+    return nil
+}
+
+// Enhanced tool help display
+func showToolHelp() {
+    fmt.Println("Available tools:")
+    fmt.Println("  read     - Read file contents")
+    fmt.Println("  write    - Create/overwrite files")
+    fmt.Println("  edit     - Edit files precisely")
+    fmt.Println("  exec     - Run shell commands")
+    fmt.Println("  search   - Find files by name/content")
+    fmt.Println("  git      - Git operations")
+    fmt.Println("  env      - Environment variables")
+    fmt.Println("  tools    - List all tools")
+    fmt.Println("  session  - Session management")
+    fmt.Println("\nUse 'toolname --help' for detailed usage")
 }

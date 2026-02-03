@@ -36,7 +36,7 @@ func (f *Factory) CreateProvider(name string) (ai.Provider, error) {
 	}
 
 	switch name {
-	case "openai", "deepseek", "glm", "minimax", "qwen":
+	case "openai", "deepseek", "glm", "minimax", "qwen", "kimi":
 		// All these use OpenAI-compatible API
 		if apiKey == "" {
 			// Try environment variable as fallback
@@ -60,54 +60,42 @@ func (f *Factory) CreateProvider(name string) (ai.Provider, error) {
 			providerConfig = f.config.Providers.Minimax
 		case "qwen":
 			providerConfig = f.config.Providers.Qwen
+		case "kimi":
+			providerConfig = f.config.Providers.Kimi
 		}
 
-		// Build config for the provider
-		config := ProviderConfig{
-			APIKey: apiKey,
-			Model:  model,
-		}
-
+		// Create provider with proper configuration
+		baseURL := ""
 		if providerConfig != nil {
-			if providerConfig.BaseURL != "" {
-				config.BaseURL = providerConfig.BaseURL
-			}
-			if providerConfig.Model != "" && model == f.config.GetModel(name) {
-				// Use config model if not overridden by command line
-				config.Model = providerConfig.Model
-			}
+			baseURL = providerConfig.BaseURL
 		}
 
-		// Validate that we have a valid API key
-		if apiKey == "" {
-			return nil, fmt.Errorf("invalid API key for provider %s", name)
+		// For Kimi, set the default base URL
+		if name == "kimi" && baseURL == "" {
+			baseURL = "https://api.moonshot.cn/v1"
 		}
 
-		return NewOpenAICompatibleProvider(name, config)
+		// Create OpenAI-compatible provider
+		provider, err := NewOpenAICompatibleProvider(name, ProviderConfig{
+			APIKey:  apiKey,
+			BaseURL: baseURL,
+			Model:   model,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create %s provider: %w", name, err)
+		}
 
-	case "mock":
-		// Mock provider for testing (always works)
-		return NewMockProvider(true), nil
-
-	case "simple":
-		// Simple provider (always works, no tools)
-		return NewSimpleProvider(), nil
-
+		return provider, nil
 	default:
-		return nil, fmt.Errorf("unknown provider: %s. Available: openai, deepseek, glm, minimax, qwen, mock, simple", name)
+		return nil, fmt.Errorf("unsupported provider: %s", name)
 	}
 }
 
-// CreateDefaultProvider creates the default provider from config
-func (f *Factory) CreateDefaultProvider() (ai.Provider, error) {
-	return f.CreateProvider(f.config.Default.Provider)
-}
-
-// ListAvailableProviders returns a list of available providers
+// ListAvailableProviders returns a list of all available providers
 func (f *Factory) ListAvailableProviders() []string {
-	providers := []string{"mock", "simple"}
-
-	// Check which configured providers have API keys
+	var providers []string
+	
+	// Check which providers have API keys configured
 	if f.config.GetAPIKey("openai") != "" || os.Getenv("OPENAI_API_KEY") != "" {
 		providers = append(providers, "openai")
 	}
@@ -123,38 +111,36 @@ func (f *Factory) ListAvailableProviders() []string {
 	if f.config.GetAPIKey("qwen") != "" || os.Getenv("QWEN_API_KEY") != "" {
 		providers = append(providers, "qwen")
 	}
-
-	return providers
-}
-
-// ValidateProviderConfig validates that the provider configuration is valid
-func (f *Factory) ValidateProviderConfig(name string) error {
-	// Check if provider exists in our supported list
-	supportedProviders := []string{"openai", "deepseek", "glm", "minimax", "qwen"}
-
-	valid := false
-	for _, provider := range supportedProviders {
-		if provider == name {
-			valid = true
-			break
+	if f.config.GetAPIKey("kimi") != "" || os.Getenv("KIMI_API_KEY") != "" {
+		providers = append(providers, "kimi")
+	}
+	
+	// Always include the default provider
+	providers = append(providers, f.config.Default.Provider)
+	
+	// Remove duplicates
+	uniqueProviders := make(map[string]bool)
+	var unique []string
+	for _, p := range providers {
+		if !uniqueProviders[p] {
+			uniqueProviders[p] = true
+			unique = append(unique, p)
 		}
 	}
+	
+	return unique
+}
 
-	if !valid {
-		return fmt.Errorf("unsupported provider: %s", name)
+// SupportedProviders returns a list of all supported providers
+func (f *Factory) SupportedProviders() []string {
+	supportedProviders := []string{
+		"openai",
+		"deepseek",
+		"glm",
+		"minimax",
+		"qwen",
+		"kimi",
 	}
-
-	// Check if API key is present
-	apiKey := f.config.GetAPIKey(name)
-	if apiKey == "" {
-		// Check environment variable
-		envVar := fmt.Sprintf("%s_API_KEY", strings.ToUpper(name))
-		apiKey = os.Getenv(envVar)
-	}
-
-	if apiKey == "" {
-		return fmt.Errorf("missing API key for provider %s", name)
-	}
-
-	return nil
+	
+	return supportedProviders
 }

@@ -16,6 +16,7 @@ type Config struct {
 }
 
 type ProvidersConfig struct {
+	Kimi     *ProviderConfig `yaml:"kimi,omitempty"`
 	OpenAI   *ProviderConfig `yaml:"openai,omitempty"`
 	DeepSeek *ProviderConfig `yaml:"deepseek,omitempty"`
 	GLM      *ProviderConfig `yaml:"glm,omitempty"`
@@ -148,6 +149,10 @@ func (c *Config) GetAPIKey(provider string) string {
 		if c.Providers.Qwen != nil {
 			return c.Providers.Qwen.APIKey
 		}
+	case "kimi":
+		if c.Providers.Kimi != nil {
+			return c.Providers.Kimi.APIKey
+		}
 	}
 
 	return ""
@@ -181,6 +186,11 @@ func (c *Config) GetModel(provider string) string {
 			return c.Providers.Qwen.Model
 		}
 		return "qwen3-coder-30b" // Default Qwen model: 262K context, great for coding
+	case "kimi":
+		if c.Providers.Kimi != nil && c.Providers.Kimi.Model != "" {
+			return c.Providers.Kimi.Model
+		}
+		return "moonshot-v1-8k" // Default Kimi model
 	default:
 		return c.Default.Model
 	}

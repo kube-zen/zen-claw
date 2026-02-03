@@ -349,11 +349,11 @@ func (a *Agent) executeToolCalls(ctx context.Context, toolCalls []ai.ToolCall) (
 }
 
 // getToolDefinitions converts tools to AI tool definitions
-func (a *Agent) getToolDefinitions() []ai.ToolDefinition {
-	var defs []ai.ToolDefinition
+func (a *Agent) getToolDefinitions() []ai.Tool {
+	var defs []ai.Tool
 
 	for _, tool := range a.tools {
-		defs = append(defs, ai.ToolDefinition{
+		defs = append(defs, ai.Tool{
 			Name:        tool.Name(),
 			Description: tool.Description(),
 			Parameters:  tool.Parameters(),
