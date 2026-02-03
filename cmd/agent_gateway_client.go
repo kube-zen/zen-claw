@@ -32,12 +32,13 @@ func NewGatewayClient(baseURL string) *GatewayClient {
 
 // ChatRequest represents a chat request to the gateway
 type ChatRequest struct {
-	SessionID  string `json:"session_id"`
-	UserInput  string `json:"user_input"`
-	WorkingDir string `json:"working_dir"`
-	Provider   string `json:"provider"`
-	Model      string `json:"model"`
-	MaxSteps   int    `json:"max_steps"`
+	SessionID     string `json:"session_id"`
+	UserInput     string `json:"user_input"`
+	WorkingDir    string `json:"working_dir"`
+	Provider      string `json:"provider"`
+	Model         string `json:"model"`
+	MaxSteps      int    `json:"max_steps"`
+	ThinkingLevel string `json:"thinking_level,omitempty"` // off, low, medium, high
 }
 
 // ChatResponse represents a chat response from the gateway

@@ -11,13 +11,15 @@ import (
 	"github.com/neves/zen-claw/internal/agent"
 	"github.com/neves/zen-claw/internal/ai"
 	"github.com/neves/zen-claw/internal/config"
+	"github.com/neves/zen-claw/internal/mcp"
 )
 
 // GatewayAICaller implements agent.AICaller for gateway
 type GatewayAICaller struct {
-	aiRouter *AIRouter
-	provider string
-	model    string
+	aiRouter      *AIRouter
+	provider      string
+	model         string
+	thinkingLevel ai.ThinkingLevel
 }
 
 func (c *GatewayAICaller) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
@@ -29,6 +31,12 @@ func (c *GatewayAICaller) Chat(ctx context.Context, req ai.ChatRequest) (*ai.Cha
 		req.Model = c.model
 	}
 
+	// Apply thinking level
+	if c.thinkingLevel != "" {
+		req.ThinkingLevel = c.thinkingLevel
+		req.Thinking = c.thinkingLevel != ai.ThinkingOff
+	}
+
 	return c.aiRouter.Chat(ctx, req, preferredProvider)
 }
 
@@ -36,6 +44,10 @@ func (c *GatewayAICaller) ChatStream(ctx context.Context, req ai.ChatRequest, ca
 	preferredProvider := c.provider
 	if c.model != "" {
 		req.Model = c.model
+	}
+	if c.thinkingLevel != "" {
+		req.ThinkingLevel = c.thinkingLevel
+		req.Thinking = c.thinkingLevel != ai.ThinkingOff
 	}
 	return c.aiRouter.ChatStream(ctx, req, preferredProvider, callback)
 }
@@ -48,6 +60,7 @@ type AgentService struct {
 	sessionStore     *SessionStore
 	fallbackSessions map[string]*agent.Session
 	fallbackMu       sync.RWMutex
+	mcpClient        *mcp.Client
 }
 
 // NewAgentService creates a new agent service for the gateway
@@ -96,23 +109,55 @@ func NewAgentService(cfg *config.Config) *AgentService {
 		agent.NewApplyPatchTool(""), // Apply structured patches
 	}
 
+	// Initialize MCP client
+	mcpClient := mcp.NewClient()
+
+	// Connect to configured MCP servers
+	mcpServers := cfg.GetMCPServers()
+	if len(mcpServers) > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		for _, srv := range mcpServers {
+			log.Printf("[MCP] Connecting to server: %s", srv.Name)
+			err := mcpClient.Connect(ctx, mcp.ServerConfig{
+				Name:    srv.Name,
+				Command: srv.Command,
+				Args:    srv.Args,
+				Env:     srv.Env,
+			})
+			if err != nil {
+				log.Printf("[MCP] Warning: Failed to connect to %s: %v", srv.Name, err)
+			}
+		}
+
+		// Add MCP tools to the tool list
+		mcpTools := mcpClient.GetTools()
+		if len(mcpTools) > 0 {
+			log.Printf("[MCP] Adding %d tools from MCP servers", len(mcpTools))
+			tools = append(tools, mcpTools...)
+		}
+	}
+
 	return &AgentService{
 		config:           cfg,
 		aiRouter:         aiRouter,
 		tools:            tools,
 		sessionStore:     sessionStore,
 		fallbackSessions: make(map[string]*agent.Session),
+		mcpClient:        mcpClient,
 	}
 }
 
 // ChatRequest represents a chat request to the agent service
 type ChatRequest struct {
-	SessionID  string `json:"session_id"`
-	UserInput  string `json:"user_input"`
-	WorkingDir string `json:"working_dir,omitempty"`
-	Provider   string `json:"provider,omitempty"`
-	Model      string `json:"model,omitempty"`
-	MaxSteps   int    `json:"max_steps,omitempty"`
+	SessionID     string `json:"session_id"`
+	UserInput     string `json:"user_input"`
+	WorkingDir    string `json:"working_dir,omitempty"`
+	Provider      string `json:"provider,omitempty"`
+	Model         string `json:"model,omitempty"`
+	MaxSteps      int    `json:"max_steps,omitempty"`
+	ThinkingLevel string `json:"thinking_level,omitempty"` // off, low, medium, high
 }
 
 // ChatResponse represents a chat response from the agent service
@@ -179,9 +224,10 @@ func (s *AgentService) ChatWithProgress(ctx context.Context, req ChatRequest, pr
 
 	// Create AI caller for gateway
 	aiCaller := &GatewayAICaller{
-		aiRouter: s.aiRouter,
-		provider: providerName,
-		model:    modelName,
+		aiRouter:      s.aiRouter,
+		provider:      providerName,
+		model:         modelName,
+		thinkingLevel: ai.ThinkingLevel(req.ThinkingLevel),
 	}
 
 	// Create agent with progress callback
@@ -493,4 +539,27 @@ func (s *AgentService) GetCacheStats() (hits, misses, size int, hitRate float64)
 // GetCircuitStats returns circuit breaker statistics
 func (s *AgentService) GetCircuitStats() map[string]map[string]interface{} {
 	return s.aiRouter.GetCircuitStats()
+}
+
+// GetMCPServers returns connected MCP server names
+func (s *AgentService) GetMCPServers() []string {
+	if s.mcpClient == nil {
+		return nil
+	}
+	return s.mcpClient.ListServers()
+}
+
+// GetMCPToolCount returns total number of MCP tools
+func (s *AgentService) GetMCPToolCount() int {
+	if s.mcpClient == nil {
+		return 0
+	}
+	return len(s.mcpClient.GetTools())
+}
+
+// Close cleans up resources
+func (s *AgentService) Close() {
+	if s.mcpClient != nil {
+		s.mcpClient.Close()
+	}
 }

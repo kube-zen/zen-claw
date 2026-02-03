@@ -25,17 +25,28 @@ type Tool struct {
 	Parameters  map[string]interface{} `json:"parameters"`
 }
 
+// ThinkingLevel represents the depth of model reasoning
+type ThinkingLevel string
+
+const (
+	ThinkingOff    ThinkingLevel = "off"
+	ThinkingLow    ThinkingLevel = "low"    // basic reasoning
+	ThinkingMedium ThinkingLevel = "medium" // moderate reasoning
+	ThinkingHigh   ThinkingLevel = "high"   // deep reasoning
+)
+
 // ChatRequest represents a chat request to an AI provider
 type ChatRequest struct {
-	Messages                []Message `json:"messages"`
-	Tools                   []Tool    `json:"tools,omitempty"`
-	Model                   string    `json:"model,omitempty"`
-	Temperature             float64   `json:"temperature,omitempty"`
-	MaxTokens               int       `json:"max_tokens,omitempty"`
-	ContextLimit            int       `json:"context_limit,omitempty"`
-	Thinking                bool      `json:"thinking,omitempty"`
-	QwenLargeContextEnabled bool      `json:"qwen_large_context_enabled,omitempty"`
-	Stream                  bool      `json:"stream,omitempty"` // Enable streaming
+	Messages                []Message     `json:"messages"`
+	Tools                   []Tool        `json:"tools,omitempty"`
+	Model                   string        `json:"model,omitempty"`
+	Temperature             float64       `json:"temperature,omitempty"`
+	MaxTokens               int           `json:"max_tokens,omitempty"`
+	ContextLimit            int           `json:"context_limit,omitempty"`
+	Thinking                bool          `json:"thinking,omitempty"`         // Legacy: simple on/off
+	ThinkingLevel           ThinkingLevel `json:"thinking_level,omitempty"`   // New: off/low/medium/high
+	QwenLargeContextEnabled bool          `json:"qwen_large_context_enabled,omitempty"`
+	Stream                  bool          `json:"stream,omitempty"` // Enable streaming
 }
 
 // ChatResponse represents a chat response from an AI provider

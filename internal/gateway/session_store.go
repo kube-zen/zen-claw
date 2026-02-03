@@ -3,6 +3,7 @@ package gateway
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -61,6 +62,13 @@ func NewSessionStore(cfg *SessionStoreConfig) (*SessionStore, error) {
 		config:      cfg,
 		sessions:    make(map[string]*SessionInfo),
 		maxSessions: cfg.MaxSessions,
+	}
+
+	// Migrate old sessions from /tmp if needed
+	if cfg.DataDir != "/tmp/zen-claw-sessions" {
+		if err := store.migrateOldSessions(); err != nil {
+			log.Printf("Warning: Failed to migrate old sessions: %v", err)
+		}
 	}
 
 	// Load existing sessions
@@ -321,6 +329,65 @@ func (s *SessionStore) persistSession(session *agent.Session) error {
 	return nil
 }
 
+// migrateOldSessions migrates sessions from old /tmp location to new location
+func (s *SessionStore) migrateOldSessions() error {
+	oldDir := "/tmp/zen-claw-sessions"
+	
+	// Check if old directory exists
+	if _, err := os.Stat(oldDir); os.IsNotExist(err) {
+		return nil // Nothing to migrate
+	}
+	
+	// Read old sessions
+	entries, err := os.ReadDir(oldDir)
+	if err != nil {
+		return fmt.Errorf("read old sessions directory: %w", err)
+	}
+	
+	migrated := 0
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		
+		oldPath := filepath.Join(oldDir, entry.Name())
+		newPath := filepath.Join(s.config.DataDir, entry.Name())
+		
+		// Check if already exists in new location
+		if _, err := os.Stat(newPath); err == nil {
+			continue // Already migrated
+		}
+		
+		// Copy file
+		data, err := os.ReadFile(oldPath)
+		if err != nil {
+			log.Printf("Warning: Failed to read old session %s: %v", entry.Name(), err)
+			continue
+		}
+		
+		// Write to new location (atomic write)
+		tmpPath := newPath + ".tmp"
+		if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+			log.Printf("Warning: Failed to write new session %s: %v", entry.Name(), err)
+			continue
+		}
+		
+		if err := os.Rename(tmpPath, newPath); err != nil {
+			log.Printf("Warning: Failed to rename session %s: %v", entry.Name(), err)
+			continue
+		}
+		
+		migrated++
+		log.Printf("Migrated session: %s", entry.Name())
+	}
+	
+	if migrated > 0 {
+		log.Printf("Successfully migrated %d sessions from %s to %s", migrated, oldDir, s.config.DataDir)
+	}
+	
+	return nil
+}
+
 // loadSessions loads all sessions from disk
 func (s *SessionStore) loadSessions() error {
 	entries, err := os.ReadDir(s.config.DataDir)
@@ -364,7 +431,6 @@ func (s *SessionStore) loadSessions() error {
 
 	return nil
 }
-
 // PersistedSession represents a session saved to disk
 type PersistedSession struct {
 	ID         string       `json:"id"`

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PuerkitoBio/goquery"
 	readability "codeberg.org/readeck/go-readability/v2"
+	"github.com/PuerkitoBio/goquery"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -263,10 +263,10 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]interface{})
 
 	if resp.StatusCode != http.StatusOK {
 		return map[string]interface{}{
-			"url":        rawURL,
-			"error":      fmt.Sprintf("HTTP %d", resp.StatusCode),
+			"url":         rawURL,
+			"error":       fmt.Sprintf("HTTP %d", resp.StatusCode),
 			"status_code": resp.StatusCode,
-			"success":    false,
+			"success":     false,
 		}, nil
 	}
 

@@ -9,8 +9,8 @@ import (
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/neves/zen-claw/internal/ai"
 	"github.com/neves/zen-claw/internal/agent"
+	"github.com/neves/zen-claw/internal/ai"
 )
 
 // ServerConfig defines an MCP server connection

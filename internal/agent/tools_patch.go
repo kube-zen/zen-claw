@@ -56,11 +56,11 @@ func NewApplyPatchTool(workingDir string) *ApplyPatchTool {
 
 // PatchOperation represents a single file operation
 type PatchOperation struct {
-	Type     string // "add", "update", "delete"
-	Path     string
-	NewPath  string // for rename
-	Content  string // for add
-	Hunks    []PatchHunk
+	Type    string // "add", "update", "delete"
+	Path    string
+	NewPath string // for rename
+	Content string // for add
+	Hunks   []PatchHunk
 }
 
 // PatchHunk represents a diff hunk

@@ -178,7 +178,11 @@ func (s *Server) statsHandler(w http.ResponseWriter, r *http.Request) {
 			"size":     size,
 			"hit_rate": hitRate,
 		},
-		"circuits":  s.agentService.GetCircuitStats(),
+		"circuits": s.agentService.GetCircuitStats(),
+		"mcp": map[string]interface{}{
+			"servers": s.agentService.GetMCPServers(),
+			"tools":   s.agentService.GetMCPToolCount(),
+		},
 		"timestamp": time.Now().Format(time.RFC3339),
 	})
 }

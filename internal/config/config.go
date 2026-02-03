@@ -18,6 +18,21 @@ type Config struct {
 	Factory     FactoryConfig     `yaml:"factory"`
 	Preferences PreferencesConfig `yaml:"preferences"`
 	Web         WebConfig         `yaml:"web"`
+	MCP         MCPConfig         `yaml:"mcp"`
+}
+
+// MCPConfig configures Model Context Protocol servers
+type MCPConfig struct {
+	Servers []MCPServerConfig `yaml:"servers"`
+}
+
+// MCPServerConfig defines an MCP server connection
+type MCPServerConfig struct {
+	Name    string   `yaml:"name"`    // Display name
+	Command string   `yaml:"command"` // Command to run (e.g., "npx", "python")
+	Args    []string `yaml:"args"`    // Arguments
+	Env     []string `yaml:"env"`     // Environment variables (optional)
+	Enabled bool     `yaml:"enabled"` // Whether to auto-connect (default true if not specified)
 }
 
 // WebConfig configures web tools (search, fetch)
@@ -28,8 +43,8 @@ type WebConfig struct {
 // WebSearchConfig configures web search
 type WebSearchConfig struct {
 	Enabled  bool   `yaml:"enabled"`
-	APIKey   string `yaml:"api_key"`   // Brave Search API key
-	Provider string `yaml:"provider"`  // "brave" (default)
+	APIKey   string `yaml:"api_key"`  // Brave Search API key
+	Provider string `yaml:"provider"` // "brave" (default)
 }
 
 type SessionsConfig struct {
@@ -346,4 +361,16 @@ func (c *Config) GetModel(provider string) string {
 	default:
 		return c.Default.Model
 	}
+}
+
+// GetMCPServers returns enabled MCP server configs
+func (c *Config) GetMCPServers() []MCPServerConfig {
+	var enabled []MCPServerConfig
+	for _, srv := range c.MCP.Servers {
+		// Default to enabled if not explicitly disabled
+		if srv.Command != "" && srv.Name != "" {
+			enabled = append(enabled, srv)
+		}
+	}
+	return enabled
 }

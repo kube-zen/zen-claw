@@ -233,8 +233,11 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 	}
 	fmt.Printf("Working directory: %s\n", workingDir)
 	fmt.Println()
-	fmt.Println("Commands: /models, /model <name>, /provider <name>, /stats, /clear, /help, /exit")
+	fmt.Println("Commands: /models, /model, /provider, /think, /stats, /clear, /help, /exit")
 	fmt.Println("═" + strings.Repeat("═", 78))
+
+	// Thinking level for reasoning-capable models
+	thinkingLevel := "" // off, low, medium, high (empty = model default)
 
 	// Create gateway client
 	client := NewGatewayClient("http://localhost:8080")
@@ -333,12 +336,38 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			fmt.Println("  /models             - List available models")
 			fmt.Println("  /model <name>       - Switch to a different model")
 			fmt.Println("  /provider <name>    - Switch provider (deepseek, qwen, minimax, kimi)")
+			fmt.Println("  /think [level]      - Set thinking level (off, low, medium, high)")
 			fmt.Println("  /context-limit [n]  - Set context limit (0=unlimited)")
 			fmt.Println("  /exit               - Exit")
 			fmt.Println()
 			fmt.Println("Multi-AI modes (separate commands):")
 			fmt.Println("  zen-claw consensus  - 3 AIs → arbiter → better blueprints")
 			fmt.Println("  zen-claw factory    - Coordinator + specialist AIs")
+			continue
+
+		case input == "/think" || strings.HasPrefix(input, "/think "):
+			// Handle /think command
+			if input == "/think" {
+				if thinkingLevel == "" {
+					fmt.Println("Thinking: default (model decides)")
+				} else {
+					fmt.Printf("Thinking: %s\n", thinkingLevel)
+				}
+				fmt.Println("Usage: /think [off|low|medium|high]")
+				continue
+			}
+			level := strings.TrimSpace(strings.TrimPrefix(input, "/think "))
+			switch level {
+			case "off", "low", "medium", "high":
+				thinkingLevel = level
+				if level == "off" {
+					fmt.Println("✓ Thinking disabled")
+				} else {
+					fmt.Printf("✓ Thinking level: %s\n", level)
+				}
+			default:
+				fmt.Println("Invalid level. Use: off, low, medium, high")
+			}
 			continue
 
 		case input == "/clear":
@@ -671,12 +700,13 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 
 		// Process task
 		req := ChatRequest{
-			SessionID:  sessionID,
-			UserInput:  input,
-			WorkingDir: workingDir,
-			Provider:   providerName,
-			Model:      modelName,
-			MaxSteps:   maxSteps,
+			SessionID:     sessionID,
+			UserInput:     input,
+			WorkingDir:    workingDir,
+			Provider:      providerName,
+			Model:         modelName,
+			MaxSteps:      maxSteps,
+			ThinkingLevel: thinkingLevel,
 		}
 
 		// Send request to gateway with streaming progress
