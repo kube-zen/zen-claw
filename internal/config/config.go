@@ -290,10 +290,10 @@ func NewDefaultConfig() *Config {
 			RequireConfirm: true, // Require confirmation for large context
 		},
 		CostOptimization: CostOptimizationConfig{
-			MaxHistoryTurns:         50,   // Hard cap at 50 messages
-			MaxHistoryMessages:      20,   // Summarize beyond 20
-			KeepLastAssistants:      3,    // Keep last 3 assistant msgs intact
-			MaxToolResultTokens:     8000, // Default ~32KB
+			MaxHistoryTurns:         50,      // Hard cap at 50 messages
+			MaxHistoryMessages:      20,      // Summarize beyond 20
+			KeepLastAssistants:      3,       // Keep last 3 assistant msgs intact
+			MaxToolResultTokens:     8000,    // Default ~32KB
 			AnthropicCacheRetention: "short", // 5-minute cache for Anthropic
 			ToolRules: map[string]ToolRuleConfig{
 				"exec":    {MaxTokens: 4000, KeepRecent: 1, Aggressive: true},
