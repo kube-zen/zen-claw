@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/neves/zen-claw/internal/config"
+	"github.com/neves/zen-claw/internal/ratelimit"
 )
 
 // Server represents the Zen Claw gateway server
@@ -25,6 +26,7 @@ type Server struct {
 	running         bool
 	pidFile         string
 	agentService    *AgentService
+	rateLimiter     *ratelimit.Limiter
 	activeRequests  int64
 	shutdownTimeout time.Duration
 }
@@ -35,6 +37,7 @@ func NewServer(cfg *config.Config) *Server {
 		config:          cfg,
 		pidFile:         "/tmp/zen-claw-gateway.pid",
 		agentService:    NewAgentService(cfg),
+		rateLimiter:     ratelimit.NewLimiter(ratelimit.DefaultConfig()),
 		shutdownTimeout: 30 * time.Second, // Allow in-flight requests to complete
 	}
 
@@ -127,6 +130,9 @@ func (s *Server) Stop() error {
 	log.Println("Closing agent service...")
 	s.agentService.Close()
 
+	// Close rate limiter
+	s.rateLimiter.Close()
+
 	// Remove PID file
 	os.Remove(s.pidFile)
 
@@ -191,6 +197,7 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 		"gateway":         "zen-claw",
 		"version":         "0.1.0",
 		"active_requests": s.ActiveRequests(),
+		"rate_limit":      s.rateLimiter.Stats(),
 	})
 }
 
@@ -221,10 +228,32 @@ func (s *Server) statsHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// getClientID extracts client identifier from request (IP + User-Agent hash)
+func getClientID(r *http.Request) string {
+	// Use X-Forwarded-For if behind proxy, otherwise RemoteAddr
+	ip := r.Header.Get("X-Forwarded-For")
+	if ip == "" {
+		ip = r.RemoteAddr
+	}
+	// Include session ID if provided for more granular limiting
+	sessionID := r.Header.Get("X-Session-ID")
+	if sessionID != "" {
+		return ip + ":" + sessionID
+	}
+	return ip
+}
+
 // chatHandler handles chat requests
 func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 	s.trackRequest()
 	defer s.untrackRequest()
+
+	// Rate limit check
+	clientID := getClientID(r)
+	if !s.rateLimiter.Allow(clientID) {
+		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
 
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -436,6 +465,13 @@ func splitString(s string, sep rune) []string {
 func (s *Server) streamChatHandler(w http.ResponseWriter, r *http.Request) {
 	s.trackRequest()
 	defer s.untrackRequest()
+
+	// Rate limit check
+	clientID := getClientID(r)
+	if !s.rateLimiter.Allow(clientID) {
+		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
 
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

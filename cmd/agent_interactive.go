@@ -120,35 +120,48 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			handleStatsCommand(client)
 			continue
 
-		case input == "/sessions" || input == "/sessions list":
+		case input == "/sessions" || input == "/sessions list" || input == "/session" || input == "/session list":
 			handleSessionsListCommand(client, sessionID)
 			continue
 
-		case input == "/sessions info":
+		case input == "/sessions info" || input == "/session info":
 			displaySessionsInfo()
 			continue
 
-		case strings.HasPrefix(input, "/sessions clean"):
-			cleanSessionsInteractive(strings.TrimPrefix(input, "/sessions clean"))
+		case strings.HasPrefix(input, "/sessions clean") || strings.HasPrefix(input, "/session clean"):
+			arg := strings.TrimPrefix(input, "/sessions clean")
+			if arg == input {
+				arg = strings.TrimPrefix(input, "/session clean")
+			}
+			cleanSessionsInteractive(arg)
 			continue
 
-		case strings.HasPrefix(input, "/sessions delete "):
-			name := strings.TrimSpace(strings.TrimPrefix(input, "/sessions delete "))
+		case strings.HasPrefix(input, "/sessions delete ") || strings.HasPrefix(input, "/session delete "):
+			name := strings.TrimPrefix(input, "/sessions delete ")
+			if name == input {
+				name = strings.TrimPrefix(input, "/session delete ")
+			}
+			name = strings.TrimSpace(name)
 			if name == "" {
-				fmt.Println("Usage: /sessions delete <name>")
+				fmt.Println("Usage: /session delete <name>")
 				continue
 			}
 			deleteSessionByName(name)
 			continue
 
-		case strings.HasPrefix(input, "/load "):
-			name := strings.TrimSpace(strings.TrimPrefix(input, "/load "))
+		case strings.HasPrefix(input, "/load ") || strings.HasPrefix(input, "/session load "):
+			name := strings.TrimPrefix(input, "/load ")
+			if name == input {
+				name = strings.TrimPrefix(input, "/session load ")
+			}
+			name = strings.TrimSpace(name)
 			if name == "" || strings.HasPrefix(name, "session_") {
-				fmt.Println("Usage: /load <session-name>")
+				fmt.Println("Usage: /session load <name>")
 				continue
 			}
 			sessionID = name
-			fmt.Printf("✓ Loaded session: %s\n", sessionID)
+			fmt.Printf("✓ Switched to session: %s\n", sessionID)
+			fmt.Println("  Next message will use this session's context")
 			continue
 
 		case input == "/prefs" || input == "/preferences":

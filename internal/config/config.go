@@ -298,10 +298,122 @@ func NewDefaultConfig() *Config {
 			AnthropicCacheRetention: "short", // 5-minute cache for Anthropic
 			ToolRules: map[string]ToolRuleConfig{
 				"exec":    {MaxTokens: 4000, KeepRecent: 1, Aggressive: true},
-				"process": {MaxTokens: 4000, KeepRecent: 1, Aggressive: true},
-			},
+			"process": {MaxTokens: 4000, KeepRecent: 1, Aggressive: true},
 		},
+	},
+}
+}
+
+// ValidationError represents a configuration validation error
+type ValidationError struct {
+	Field   string
+	Message string
+}
+
+func (e ValidationError) Error() string {
+	return fmt.Sprintf("%s: %s", e.Field, e.Message)
+}
+
+// ValidationErrors is a collection of validation errors
+type ValidationErrors []ValidationError
+
+func (e ValidationErrors) Error() string {
+	if len(e) == 0 {
+		return ""
 	}
+	if len(e) == 1 {
+		return e[0].Error()
+	}
+	msgs := make([]string, len(e))
+	for i, err := range e {
+		msgs[i] = err.Error()
+	}
+	return fmt.Sprintf("%d validation errors: %s", len(e), strings.Join(msgs, "; "))
+}
+
+// Validate checks the configuration for errors and returns validation errors if any
+func (c *Config) Validate() error {
+	var errs ValidationErrors
+
+	// Validate default provider
+	if c.Default.Provider == "" {
+		errs = append(errs, ValidationError{
+			Field:   "default.provider",
+			Message: "required",
+		})
+	} else {
+		validProviders := map[string]bool{
+			"deepseek": true, "qwen": true, "glm": true,
+			"minimax": true, "openai": true, "kimi": true, "anthropic": true,
+		}
+		if !validProviders[strings.ToLower(c.Default.Provider)] {
+			errs = append(errs, ValidationError{
+				Field:   "default.provider",
+				Message: fmt.Sprintf("unknown provider %q", c.Default.Provider),
+			})
+		}
+	}
+
+	// Validate sessions config
+	if c.Sessions.MaxSessions < 0 {
+		errs = append(errs, ValidationError{
+			Field:   "sessions.max_sessions",
+			Message: "must be >= 0",
+		})
+	}
+
+	// Validate consensus workers
+	for i, w := range c.Consensus.Workers {
+		if w.Provider == "" {
+			errs = append(errs, ValidationError{
+				Field:   fmt.Sprintf("consensus.workers[%d].provider", i),
+				Message: "required",
+			})
+		}
+	}
+
+	// Validate factory guardrails
+	if c.Factory.Guardrails.MaxPhaseDurationMins < 0 {
+		errs = append(errs, ValidationError{
+			Field:   "factory.guardrails.max_phase_duration_mins",
+			Message: "must be >= 0",
+		})
+	}
+	if c.Factory.Guardrails.MaxCostTotal < 0 {
+		errs = append(errs, ValidationError{
+			Field:   "factory.guardrails.max_cost_total",
+			Message: "must be >= 0",
+		})
+	}
+
+	// Validate routing config
+	if c.Routing.PremiumBudget < 0 {
+		errs = append(errs, ValidationError{
+			Field:   "routing.premium_budget",
+			Message: "must be >= 0",
+		})
+	}
+
+	// Validate MCP servers
+	for i, s := range c.MCP.Servers {
+		if s.Name == "" {
+			errs = append(errs, ValidationError{
+				Field:   fmt.Sprintf("mcp.servers[%d].name", i),
+				Message: "required",
+			})
+		}
+		if s.Command == "" {
+			errs = append(errs, ValidationError{
+				Field:   fmt.Sprintf("mcp.servers[%d].command", i),
+				Message: "required",
+			})
+		}
+	}
+
+	if len(errs) > 0 {
+		return errs
+	}
+	return nil
 }
 
 // GetConsensusWorkers returns consensus workers (from config or defaults)

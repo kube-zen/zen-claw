@@ -40,12 +40,12 @@ var ProviderPrices = map[string]ProviderPricing{
 		CachedPerMillion: 0.015,
 	},
 	"openai": {
-		InputPerMillion:  2.50,  // GPT-4o
+		InputPerMillion:  2.50, // GPT-4o
 		OutputPerMillion: 10.00,
 		CachedPerMillion: 1.25,
 	},
 	"anthropic": {
-		InputPerMillion:  3.00,  // Claude Sonnet
+		InputPerMillion:  3.00, // Claude Sonnet
 		OutputPerMillion: 15.00,
 		CachedPerMillion: 0.30, // 90% discount with prompt caching!
 	},
