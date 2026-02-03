@@ -94,7 +94,7 @@ func (f *Factory) CreateProvider(name string) (ai.Provider, error) {
 // ListAvailableProviders returns a list of all available providers
 func (f *Factory) ListAvailableProviders() []string {
 	var providers []string
-	
+
 	// Check which providers have API keys configured
 	if f.config.GetAPIKey("openai") != "" || os.Getenv("OPENAI_API_KEY") != "" {
 		providers = append(providers, "openai")
@@ -114,10 +114,10 @@ func (f *Factory) ListAvailableProviders() []string {
 	if f.config.GetAPIKey("kimi") != "" || os.Getenv("KIMI_API_KEY") != "" {
 		providers = append(providers, "kimi")
 	}
-	
+
 	// Always include the default provider
 	providers = append(providers, f.config.Default.Provider)
-	
+
 	// Remove duplicates
 	uniqueProviders := make(map[string]bool)
 	var unique []string
@@ -127,7 +127,7 @@ func (f *Factory) ListAvailableProviders() []string {
 			unique = append(unique, p)
 		}
 	}
-	
+
 	return unique
 }
 
@@ -141,6 +141,6 @@ func (f *Factory) SupportedProviders() []string {
 		"qwen",
 		"kimi",
 	}
-	
+
 	return supportedProviders
 }

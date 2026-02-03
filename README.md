@@ -12,7 +12,7 @@ A Go-based AI agent system with multi-provider support, real-time progress strea
 ## Features
 
 ### Multi-Provider AI Support
-Six AI providers with automatic fallback and circuit breaker:
+Seven AI providers with automatic fallback and circuit breaker:
 
 | Provider | Default Model | Context | Best For |
 |----------|--------------|---------|----------|

@@ -389,6 +389,10 @@ func (c *Config) GetAPIKey(provider string) string {
 		if c.Providers.Kimi != nil {
 			return c.Providers.Kimi.APIKey
 		}
+	case "anthropic":
+		if c.Providers.Anthropic != nil {
+			return c.Providers.Anthropic.APIKey
+		}
 	}
 
 	return ""
@@ -437,6 +441,11 @@ func (c *Config) GetModel(provider string) string {
 			return c.Providers.Kimi.Model
 		}
 		return "kimi-k2-5" // Kimi K2.5: 256K context, $0.10/M input, excellent for Go/K8s
+	case "anthropic":
+		if c.Providers.Anthropic != nil && c.Providers.Anthropic.Model != "" {
+			return c.Providers.Anthropic.Model
+		}
+		return "claude-sonnet-4-20250514" // Claude Sonnet 4: 200K context, prompt caching
 	default:
 		return c.Default.Model
 	}

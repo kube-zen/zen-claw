@@ -90,8 +90,12 @@ func TestInferProviderFromModel(t *testing.T) {
 		{"moonshot-v1-8k", "kimi"},
 		{"Moonshot-V1-128k", "kimi"},
 
+		// Anthropic models
+		{"claude-3", "anthropic"},
+		{"claude-sonnet-4", "anthropic"},
+		{"anthropic-model", "anthropic"},
+
 		// Unknown models
-		{"claude-3", ""},
 		{"unknown-model", ""},
 		{"", ""},
 	}
@@ -107,8 +111,8 @@ func TestInferProviderFromModel(t *testing.T) {
 }
 
 func TestIsValidProvider(t *testing.T) {
-	validProviders := []string{"deepseek", "qwen", "glm", "minimax", "openai", "kimi"}
-	invalidProviders := []string{"claude", "anthropic", "unknown", ""}
+	validProviders := []string{"deepseek", "qwen", "glm", "minimax", "openai", "kimi", "anthropic"}
+	invalidProviders := []string{"claude", "unknown", ""}
 
 	for _, p := range validProviders {
 		t.Run("valid_"+p, func(t *testing.T) {
