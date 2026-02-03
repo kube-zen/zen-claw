@@ -261,7 +261,7 @@ zen-claw completion fish | source
 - [x] WebSocket support - Bidirectional communication with cancel support
 - [x] **Slack integration** - Thread-based sessions, progress streaming, commands
 - [x] Session persistence and management
-- [x] Tool system (8 tools: exec, read, write, edit, append, list, search, sysinfo)
+- [x] Tool system (16 tools: file ops, git, preview)
 - [x] Interactive CLI with readline
 - [x] Provider fallback routing
 - [x] Context limit control

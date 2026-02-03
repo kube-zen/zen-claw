@@ -474,3 +474,8 @@ func (s *AgentService) GetUsageSummary() string {
 func (s *AgentService) GetCacheStats() (hits, misses, size int, hitRate float64) {
 	return s.aiRouter.GetCacheStats()
 }
+
+// GetCircuitStats returns circuit breaker statistics
+func (s *AgentService) GetCircuitStats() map[string]map[string]interface{} {
+	return s.aiRouter.GetCircuitStats()
+}

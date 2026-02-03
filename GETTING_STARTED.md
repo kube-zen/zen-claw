@@ -150,6 +150,14 @@ The AI agent has access to:
 | `list_dir` | List directory |
 | `search_files` | Regex search |
 | `system_info` | System information |
+| `git_status` | Show branch, staged/unstaged/untracked files |
+| `git_diff` | Show changes (staged, by file, by commit) |
+| `git_add` | Stage files for commit |
+| `git_commit` | Commit with message |
+| `git_push` | Push to remote |
+| `git_log` | Show commit history |
+| `preview_write` | Preview diff before writing file |
+| `preview_edit` | Preview diff before editing file |
 
 ## Troubleshooting
 
