@@ -471,14 +471,16 @@ func (s *SessionStore) loadSessions() error {
 		}
 		msgRows.Close()
 
+		msgCount := len(session.GetMessages())
 		s.sessions[id] = &SessionInfo{
 			Session:  session,
 			State:    SessionStateIdle,
 			LastUsed: updatedAt,
 		}
+		log.Printf("[SessionStore] Loaded session '%s' with %d messages", id, msgCount)
 	}
 
-	log.Printf("[SessionStore] Loaded %d sessions", len(s.sessions))
+	log.Printf("[SessionStore] Loaded %d sessions from %s", len(s.sessions), s.dbPath)
 	return nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/chzyer/readline"
+	"github.com/neves/zen-claw/internal/cost"
 	"github.com/neves/zen-claw/internal/providers"
 )
 
@@ -193,6 +194,14 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 		case strings.HasPrefix(input, "/qwen-large-context"):
 			handleQwenLargeContextCommand(client, input, sessionID, workingDir, providerName, modelName, maxSteps)
 			continue
+
+		case input == "/cost" || strings.HasPrefix(input, "/cost "):
+			handleCostCommand(input, providerName)
+			continue
+
+		case input == "/compare":
+			handleCompareProvidersCommand()
+			continue
 		}
 
 		// Process task
@@ -293,6 +302,8 @@ func printInteractiveHelp() {
 	fmt.Println("\nCommands:")
 	fmt.Println("  /clear              - Clear conversation history (fresh start)")
 	fmt.Println("  /stats              - Show usage and cache statistics")
+	fmt.Println("  /cost [prompt]      - Estimate cost for a prompt")
+	fmt.Println("  /compare            - Compare provider costs")
 	fmt.Println("  /models             - List available models")
 	fmt.Println("  /model <name>       - Switch to a different model")
 	fmt.Println("  /provider <name>    - Switch provider (deepseek, qwen, minimax, kimi)")
@@ -618,4 +629,52 @@ func handleQwenLargeContextCommand(client *GatewayClient, input, sessionID, work
 	} else {
 		fmt.Println(resp.Result)
 	}
+}
+
+func handleCostCommand(input, provider string) {
+	estimator := cost.NewEstimator()
+
+	// If just /cost, show pricing info
+	if input == "/cost" {
+		fmt.Println("\n💰 Provider Pricing (per 1M tokens)")
+		fmt.Println(strings.Repeat("─", 55))
+		fmt.Printf("%-12s %10s %10s %10s\n", "Provider", "Input", "Output", "Cached")
+		fmt.Println(strings.Repeat("─", 55))
+
+		providers := []string{"deepseek", "kimi", "qwen", "glm", "minimax", "anthropic", "openai"}
+		for _, p := range providers {
+			if pricing, ok := cost.ProviderPrices[p]; ok {
+				fmt.Printf("%-12s $%8.2f $%8.2f $%8.2f\n",
+					p, pricing.InputPerMillion, pricing.OutputPerMillion, pricing.CachedPerMillion)
+			}
+		}
+		fmt.Println(strings.Repeat("─", 55))
+		fmt.Println("Usage: /cost <prompt> - estimate cost for a specific prompt")
+		return
+	}
+
+	// Estimate for specific prompt
+	prompt := strings.TrimSpace(strings.TrimPrefix(input, "/cost "))
+	if prompt == "" {
+		fmt.Println("Usage: /cost <prompt>")
+		return
+	}
+
+	// Default system prompt estimate
+	systemPrompt := "You are a helpful AI assistant with access to code tools."
+
+	estimate := estimator.EstimateTask(provider, "", systemPrompt, prompt, true)
+	fmt.Println()
+	fmt.Println(estimate.Format())
+}
+
+func handleCompareProvidersCommand() {
+	estimator := cost.NewEstimator()
+
+	// Compare for a typical coding task
+	inputTokens := 5000  // System + context
+	outputTokens := 2000 // Code response
+
+	fmt.Println()
+	fmt.Println(estimator.CompareProviders(inputTokens, outputTokens))
 }
