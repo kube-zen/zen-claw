@@ -98,10 +98,10 @@ type PreferencesConfig struct {
 
 // RoutingConfig configures context-aware smart routing
 type RoutingConfig struct {
-	SmartRouting    bool              `yaml:"smart_routing"`     // Enable context-aware routing (default true)
-	ContextTiers    ContextTiersConfig `yaml:"context_tiers"`    // Context size tiers
-	PremiumBudget   float64           `yaml:"premium_budget"`    // Daily budget for premium models (USD)
-	RequireConfirm  bool              `yaml:"require_confirm"`   // Require confirmation for premium tier
+	SmartRouting   bool               `yaml:"smart_routing"`   // Enable context-aware routing (default true)
+	ContextTiers   ContextTiersConfig `yaml:"context_tiers"`   // Context size tiers
+	PremiumBudget  float64            `yaml:"premium_budget"`  // Daily budget for premium models (USD)
+	RequireConfirm bool               `yaml:"require_confirm"` // Require confirmation for premium tier
 }
 
 // ContextTiersConfig defines context size thresholds
@@ -453,8 +453,8 @@ func (c *Config) GetContextTier(tokenCount int) ContextTier {
 // GetProvidersForTier returns providers suitable for a context tier
 func (c *Config) GetProvidersForTier(tier ContextTier) []string {
 	// Known provider capabilities by tier
-	smallProviders := []string{"deepseek", "glm"}                          // 128K max, cheapest
-	mediumProviders := []string{"qwen", "kimi", "deepseek", "glm"}         // 200K-262K, balanced
+	smallProviders := []string{"deepseek", "glm"}                             // 128K max, cheapest
+	mediumProviders := []string{"qwen", "kimi", "deepseek", "glm"}            // 200K-262K, balanced
 	largeProviders := []string{"minimax", "qwen", "kimi", "gemini", "claude"} // 1M+, premium
 
 	switch tier {

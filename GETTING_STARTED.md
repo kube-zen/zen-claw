@@ -13,18 +13,22 @@ export DEEPSEEK_API_KEY=sk-your-key-here
 # 3. Start gateway
 ./zen-claw gateway start &
 
-# 4. Run your first task
-./zen-claw agent "list files in the current directory"
+# 4. Interactive mode (recommended)
+./zen-claw agent
 ```
 
-You'll see real-time progress:
+You'll see:
 ```
-🚀 Starting with deepseek/deepseek-chat
-📍 Step 1/100: Thinking...
-   💭 Waiting for AI response...
-   🔧 list_dir(path=".")
-   ✓ list_dir → 18 items
-✅ Task completed
+🚀 Zen Agent
+════════════════════════════════════════════════════════════════════════════════
+Fresh context (use --session <name> to save)
+Working directory: .
+
+Commands: /help, /sessions, /models, /provider, /stats, /clear, /exit
+════════════════════════════════════════════════════════════════════════════════
+Provider: deepseek, Model: deepseek-chat
+════════════════════════════════════════════════════════════════════════════════
+> 
 ```
 
 ## Configuration
@@ -64,6 +68,9 @@ sessions:
   max_sessions: 5
   # db_path: ~/.zen/zen-claw/data/sessions.db  # Custom path (optional)
 
+preferences:
+  fallback_order: [deepseek, kimi, glm, minimax, qwen, openai]
+
 # MCP Servers (optional) - auto-connect on gateway start
 # mcp:
 #   servers:
@@ -83,44 +90,89 @@ sessions:
 | **Minimax** | https://api.minimax.chat | Balanced |
 | **OpenAI** | https://platform.openai.com | Fallback |
 
-## Basic Usage
+## Interactive Mode (Primary Interface)
 
-### One-off Tasks
-```bash
-# Simple question
-./zen-claw agent "what is 2+2?"
-
-# Code analysis
-./zen-claw agent "analyze the main.go file"
-
-# With specific provider
-./zen-claw agent --provider kimi "review this Go code"
-```
-
-### Interactive Mode
 ```bash
 ./zen-claw agent
-
-# Commands available:
-# /provider kimi    - Switch provider
-# /model kimi-k2-5  - Switch model
-# /think high       - Enable deep reasoning (off/low/medium/high)
-# /stats            - Show usage and cache stats
-# /clear            - Fresh context
-# /help             - Show all commands
-# /exit             - Exit
 ```
 
-### Session Management
+### Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show all commands |
+| `/sessions` | List saved sessions |
+| `/sessions info` | Show storage info (path, size, count) |
+| `/sessions clean --all` | Delete all sessions |
+| `/sessions clean --older 7d` | Delete sessions older than 7 days |
+| `/sessions delete <name>` | Delete specific session |
+| `/load <name>` | Load a saved session |
+| `/clear` | Fresh context (like Cursor Cmd+N) |
+| `/provider <name>` | Switch provider (deepseek, kimi, qwen, etc.) |
+| `/model <name>` | Switch model |
+| `/models` | List models for current provider |
+| `/think [level]` | Set reasoning depth (off/low/medium/high) |
+| `/stats` | Show usage and cache statistics |
+| `/prefs` | View AI routing preferences |
+| `/exit` | Exit |
+
+### Example Session
+
+```
+> /provider kimi
+Switched to provider: kimi (model: kimi-k2-5)
+
+> analyze main.go and suggest improvements
+
+[1] 
+    list_dir(path=".")
+[2] 
+    read_file(path="main.go")
+
+════════════════════════════════════════════════════════════════════════════════
+🎯 RESULT
+════════════════════════════════════════════════════════════════════════════════
+Here are my suggestions for main.go:
+1. ...
+
+> /sessions
+📋 Saved Sessions:
+──────────────────────────────────────────────────
+  No saved sessions
+  Use --session <name> to save a session
+──────────────────────────────────────────────────
+Commands: /sessions info, /sessions clean [--all|--older 7d]
+```
+
+## Session Management
+
+### Named Sessions (Persistent)
 ```bash
-# Start with session ID (for continuation)
-./zen-claw agent --session-id my-project "set up a Go project"
+# Start with a named session (will be saved)
+./zen-claw agent --session my-project
 
 # Continue later
-./zen-claw agent --session-id my-project "add error handling"
+./zen-claw agent --session my-project
+```
 
-# List sessions
-curl http://localhost:8080/sessions
+### CLI Commands
+```bash
+# List all sessions
+./zen-claw sessions list
+
+# Show storage info
+./zen-claw sessions info
+Session Storage Info
+──────────────────────────────────────────────────
+Database: /home/user/.zen/zen-claw/data/sessions.db
+Size: 24.5 KB
+Sessions: 3
+
+# Clean old sessions
+./zen-claw sessions clean --older 7d
+
+# Delete all sessions
+./zen-claw sessions clean --all
 ```
 
 ## Provider Selection Guide
@@ -132,82 +184,35 @@ curl http://localhost:8080/sessions
 | Large codebase | qwen | 262K context |
 | Complex reasoning | kimi | Strong analysis |
 
-## Smart Context Routing
+## Available Tools (20+)
 
-The gateway automatically routes requests based on context size:
-
-| Context Size | Tier | Providers | Strategy |
-|--------------|------|-----------|----------|
-| <32K tokens | small | deepseek, glm | Cheapest first |
-| 32K-200K | medium | qwen, kimi | Balanced cost/capability |
-| >200K | large | minimax (4M), gemini (1M) | Premium for massive context |
-
-### How it works:
-1. Gateway estimates token count from messages
-2. Selects appropriate tier
-3. Routes to providers that can handle the context
-4. Falls back to cheaper options when possible
-
-### Config:
-```yaml
-routing:
-  smart_routing: true
-  context_tiers:
-    small_max: 32000    # <32K → cheap tier
-    medium_max: 200000  # 32K-200K → balanced tier
-    # >200K → premium tier
-  premium_budget: 5.0   # Daily $ limit for premium
-  require_confirm: true # Confirm before premium
-```
-
-### "Lost in the Middle" mitigation:
-For large contexts (>50K tokens), the gateway automatically restructures prompts:
-- Critical instructions at START and END
-- Context data in the middle
-- Reminder before final user question
-
-This addresses the known limitation where models struggle to recall info from the middle of long prompts.
+| Category | Tools |
+|----------|-------|
+| **File** | read_file, write_file, edit_file, append_file, list_dir, search_files |
+| **Git** | git_status, git_diff, git_add, git_commit, git_push, git_log |
+| **Preview** | preview_write, preview_edit |
+| **Web** | web_search, web_fetch |
+| **System** | exec, system_info, process |
+| **Advanced** | apply_patch |
+| **MCP** | External tools via Model Context Protocol |
 
 ## Architecture
 
 ```
 ┌────────────┐    SSE     ┌────────────┐    API    ┌────────────┐
 │   CLI      │◄──────────►│  Gateway   │◄─────────►│ Providers  │
-│  Client    │  Stream    │  :8080     │           │ DS/Kimi/.. │
-└────────────┘            └────────────┘           └────────────┘
+│  Client    │  Stream    │  :8080     │           │ +Circuit   │
+└────────────┘            └─────┬──────┘           └────────────┘
+                                │
+                          ┌─────▼─────┐
+                          │  SQLite   │
+                          │ Sessions  │
+                          └───────────┘
 ```
 
 1. **Gateway** - Required, manages AI connections and sessions
-2. **CLI** - Connects to gateway, shows progress
-3. **Providers** - Multiple AI backends with fallback
-
-## Available Tools
-
-The AI agent has access to 20 tools:
-
-| Tool | Description |
-|------|-------------|
-| `exec` | Run shell commands |
-| `read_file` | Read file contents |
-| `write_file` | Create/overwrite files |
-| `edit_file` | String replacement |
-| `append_file` | Append to files |
-| `list_dir` | List directory |
-| `search_files` | Regex search |
-| `system_info` | System information |
-| `git_status` | Show branch, staged/unstaged/untracked files |
-| `git_diff` | Show changes (staged, by file, by commit) |
-| `git_add` | Stage files for commit |
-| `git_commit` | Commit with message |
-| `git_push` | Push to remote |
-| `git_log` | Show commit history |
-| `preview_write` | Preview diff before writing file |
-| `preview_edit` | Preview diff before editing file |
-| `web_search` | Search the web (Brave Search API) |
-| `web_fetch` | Fetch URL and extract readable content |
-| `process` | Background process management (start/poll/kill) |
-| `apply_patch` | Multi-file structured patches |
-| `subagent` | Spawn parallel background agent runs |
+2. **CLI** - Interactive mode is primary interface
+3. **SQLite** - ACID-compliant session persistence
 
 ## Troubleshooting
 
@@ -215,6 +220,9 @@ The AI agent has access to 20 tools:
 ```bash
 # Check if running
 curl http://localhost:8080/health
+
+# Check stats
+curl http://localhost:8080/stats
 
 # Restart gateway
 pkill -f "zen-claw gateway"
@@ -228,17 +236,11 @@ cat ~/.zen/zen-claw/config.yaml
 
 # Check environment
 echo $DEEPSEEK_API_KEY
-
-# Test API directly
-curl -X POST https://api.deepseek.com/chat/completions \
-  -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"deepseek-chat","messages":[{"role":"user","content":"hi"}]}'
 ```
 
 ### Build Issues
 ```bash
-# Ensure Go 1.24+
+# Ensure Go 1.21+
 go version
 
 # Update dependencies
@@ -248,23 +250,23 @@ go mod tidy
 go build -o zen-claw .
 ```
 
-## Next Steps
-
-1. Try different providers: `--provider kimi`
-2. Use interactive mode for multi-step tasks
-3. Explore the API: `curl http://localhost:8080/`
-4. Read [EXAMPLE.md](EXAMPLE.md) for advanced usage
-5. Check [API.md](API.md) for API documentation
-
 ## Key Files
 
 ```
 ~/.zen/zen-claw/
-├── config.yaml              # Configuration
-└── workspace/              # Agent workspace
+├── config.yaml                    # Configuration
+└── data/
+    └── sessions.db               # Session database (SQLite)
 
-/tmp/zen-claw-sessions/      # Session persistence
-/tmp/gateway.log            # Gateway logs
+~/.zen-claw-history               # CLI history
 ```
+
+## Next Steps
+
+1. Try different providers: `/provider kimi`
+2. Use `/think high` for complex reasoning
+3. Save important sessions: `--session my-project`
+4. Check `/stats` to see cache efficiency
+5. Read [API.md](API.md) for gateway API
 
 Ready to go! 🚀
