@@ -139,7 +139,7 @@ func NewFactory(cfg *config.Config) *Factory {
 func loadSpecialistsFromConfig(cfg *config.Config) map[string]Specialist {
 	domains := []string{"coordinator", "go", "typescript", "infrastructure"}
 	specialists := make(map[string]Specialist)
-	
+
 	for _, domain := range domains {
 		spec := cfg.GetFactorySpecialist(domain)
 		specialists[domain] = Specialist{
@@ -154,7 +154,7 @@ func loadSpecialistsFromConfig(cfg *config.Config) map[string]Specialist {
 // loadGuardrailsFromConfig loads guardrails from config
 func loadGuardrailsFromConfig(cfg *config.Config) Guardrails {
 	g := cfg.Factory.Guardrails
-	
+
 	// Use config values or defaults
 	maxPhase := 10
 	if g.MaxPhaseDurationMins > 0 {

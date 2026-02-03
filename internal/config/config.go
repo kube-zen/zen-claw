@@ -10,12 +10,12 @@ import (
 )
 
 type Config struct {
-	Providers  ProvidersConfig  `yaml:"providers"`
-	Default    DefaultConfig    `yaml:"default"`
-	Workspace  WorkspaceConfig  `yaml:"workspace"`
-	Sessions   SessionsConfig   `yaml:"sessions"`
-	Consensus  ConsensusConfig  `yaml:"consensus"`
-	Factory    FactoryConfig    `yaml:"factory"`
+	Providers   ProvidersConfig   `yaml:"providers"`
+	Default     DefaultConfig     `yaml:"default"`
+	Workspace   WorkspaceConfig   `yaml:"workspace"`
+	Sessions    SessionsConfig    `yaml:"sessions"`
+	Consensus   ConsensusConfig   `yaml:"consensus"`
+	Factory     FactoryConfig     `yaml:"factory"`
 	Preferences PreferencesConfig `yaml:"preferences"`
 }
 
@@ -30,10 +30,11 @@ type ConsensusConfig struct {
 }
 
 // WorkerConfig defines a consensus worker
+// Note: Role is NOT defined per-worker, it's defined per-request
+// All workers receive the SAME role for a given consensus task
 type WorkerConfig struct {
 	Provider string `yaml:"provider"`
 	Model    string `yaml:"model"`
-	Role     string `yaml:"role"` // e.g., "systems_thinker", "implementation_realist"
 }
 
 // FactoryConfig configures the factory mode specialists
@@ -171,9 +172,9 @@ func NewDefaultConfig() *Config {
 		},
 		Consensus: ConsensusConfig{
 			Workers: []WorkerConfig{
-				{Provider: "deepseek", Model: "deepseek-chat", Role: "systems_thinker"},
-				{Provider: "qwen", Model: "qwen3-coder-30b", Role: "implementation_realist"},
-				{Provider: "minimax", Model: "minimax-M2.1", Role: "edge_case_hunter"},
+				{Provider: "deepseek", Model: "deepseek-chat"},
+				{Provider: "qwen", Model: "qwen3-coder-30b"},
+				{Provider: "minimax", Model: "minimax-M2.1"},
 			},
 			Arbiter: []string{"kimi", "qwen", "deepseek"},
 		},

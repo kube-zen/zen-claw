@@ -357,9 +357,9 @@ func (a *Agent) executeToolCallsWithProgress(ctx context.Context, toolCalls []ai
 		// Build argument summary for display
 		argSummary := a.summarizeArgs(call.Args)
 		a.emitProgress("tool_call", step, fmt.Sprintf("🔧 %s(%s)", call.Name, argSummary), map[string]interface{}{
-			"tool":      call.Name,
-			"args":      call.Args,
-			"tool_num":  i + 1,
+			"tool":       call.Name,
+			"args":       call.Args,
+			"tool_num":   i + 1,
 			"tool_total": len(toolCalls),
 		})
 
@@ -425,7 +425,7 @@ func (a *Agent) summarizeArgs(args map[string]interface{}) string {
 	if len(args) == 0 {
 		return ""
 	}
-	
+
 	var parts []string
 	for k, v := range args {
 		str := fmt.Sprintf("%v", v)
@@ -434,7 +434,7 @@ func (a *Agent) summarizeArgs(args map[string]interface{}) string {
 		}
 		parts = append(parts, fmt.Sprintf("%s=%q", k, str))
 	}
-	
+
 	result := strings.Join(parts, ", ")
 	if len(result) > 80 {
 		result = result[:77] + "..."
@@ -472,7 +472,7 @@ func (a *Agent) summarizeResult(result string) string {
 			return fmt.Sprintf("%d items", len(entries))
 		}
 	}
-	
+
 	// Fallback: truncate raw result
 	if len(result) > 60 {
 		return result[:57] + "..."

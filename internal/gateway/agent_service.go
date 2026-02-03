@@ -209,14 +209,14 @@ func (s *AgentService) ChatWithProgress(ctx context.Context, req ChatRequest, pr
 		}, nil // Return error in response, not as Go error
 	}
 
-	// Save session
-	if s.sessionStore != nil {
-		// Save to persistent store
+	// Save session - only persist explicitly named sessions
+	// Auto-generated sessions (session_*) stay in memory only (like Cursor)
+	if isNamedSession(updatedSession.ID) && s.sessionStore != nil {
 		if err := s.sessionStore.SaveSession(updatedSession); err != nil {
 			log.Printf("Warning: Failed to save session %s: %v", updatedSession.ID, err)
 		}
 	} else {
-		// Save to fallback in-memory store
+		// Keep in memory for conversation continuity within this run
 		s.fallbackMu.Lock()
 		s.fallbackSessions[updatedSession.ID] = updatedSession
 		s.fallbackMu.Unlock()
@@ -283,70 +283,72 @@ func (s *AgentService) DeleteSession(sessionID string) bool {
 }
 
 // getOrCreateSession gets an existing session or creates a new one
+// IMPORTANT: Sessions are fresh by default (like Cursor).
+// Only explicitly named sessions are persisted.
 func (s *AgentService) getOrCreateSession(sessionID string) *agent.Session {
-	// Try to get existing session
-	if s.sessionStore != nil {
+	// Check if this is an explicitly named session (not auto-generated)
+	isNamedSession := sessionID != "" && !strings.HasPrefix(sessionID, "session_")
+
+	// Try to get existing named session from persistent store
+	if isNamedSession && s.sessionStore != nil {
 		if session, exists := s.sessionStore.GetSession(sessionID); exists {
 			return session
 		}
-	} else {
-		// Fallback to in-memory
+	}
+
+	// For unnamed sessions, check in-memory cache
+	if sessionID != "" {
 		s.fallbackMu.RLock()
 		session, exists := s.fallbackSessions[sessionID]
 		s.fallbackMu.RUnlock()
-
 		if exists {
 			return session
 		}
 	}
 
-	// Create new session
+	// Create new session (fresh context, like Cursor "new chat")
 	session := agent.NewSession(sessionID)
 
 	// Add system message to guide the AI
 	session.AddMessage(ai.Message{
 		Role: "system",
-		Content: `You are a strategic AI assistant that helps with code analysis and development tasks.
+		Content: `You are a software engineer assistant with full access to tools for reading, writing, and editing code.
 
-CONTEXT MANAGEMENT:
-- You have access to large context windows (up to 262K+ tokens)
-- Keep conversation history for context
-- Use tools when needed, but don't over-explore for simple tasks
+AVAILABLE TOOLS:
+- exec: Run shell commands (git, make, go, npm, etc.)
+- read_file: Read file contents
+- write_file: Create or overwrite files
+- edit_file: Make precise string replacements in files
+- append_file: Append content to files
+- list_dir: List directory contents
+- search_files: Search for patterns in files (grep-like)
+- system_info: Get system information
 
-INTELLIGENT WORKFLOW:
-1. **For simple questions**: Answer directly without tool use
-2. **For code analysis requests**: 
-   - First list directory to understand structure
-   - Then read key files (README, package.json, go.mod, main files)
-   - Analyze and provide recommendations
-3. **For development tasks**: 
-   - Break down into logical steps
-   - Use tools only when necessary
-   - Be efficient with API calls
+WORKFLOW:
+1. For simple questions: Answer directly
+2. For code tasks: Use tools to read, analyze, then write/edit
+3. Be efficient - don't over-explore
 
-TOOL USAGE GUIDELINES:
-- exec: For running commands, changing directories, git operations
-- read_file: Read specific files when analysis requires it
-- list_dir: Explore directory structure when context is needed
-- system_info: Get system details when relevant
-
-EFFICIENCY:
-- Don't explore unnecessarily for simple tasks
-- Read only key files, not everything
-- Use large context window to maintain conversation history
-- When task is complete, provide clear conclusion
-
-You have a large context window (262K+ tokens), so you can maintain long conversations. Use tools judiciously.`,
+When editing files, use edit_file with unique string matches. For new files, use write_file.`,
 	})
 
-	// Store in fallback if no persistent store
-	if s.sessionStore == nil {
+	// Only persist named sessions, not auto-generated ones
+	// This keeps the session list clean (like Cursor's chat history)
+	if isNamedSession && s.sessionStore != nil {
+		// Will be saved after first interaction
+	} else {
+		// Store in memory for conversation continuity within this run
 		s.fallbackMu.Lock()
 		s.fallbackSessions[sessionID] = session
 		s.fallbackMu.Unlock()
 	}
 
 	return session
+}
+
+// isNamedSession returns true if session was explicitly named (not auto-generated)
+func isNamedSession(sessionID string) bool {
+	return sessionID != "" && !strings.HasPrefix(sessionID, "session_")
 }
 
 // ListSessionsWithState returns all sessions with their state

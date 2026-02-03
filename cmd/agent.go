@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/chzyer/readline"
 	"github.com/spf13/cobra"
@@ -24,39 +23,27 @@ func newAgentCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "agent",
-		Short: "Lightweight AI agent (console → Slack/Telegram compatible)",
-		Long: `Zen Agent - Lightweight AI agent with automatic tool chaining.
+		Short: "AI agent with read/write/edit tools",
+		Long: `Zen Agent - AI assistant with full codebase access.
 
-Designed for multi-client sessions:
-- Start in console, continue in Slack/Telegram
-- Minimal footprint: Agent only does tool execution
-- Session-based: Save session ID to continue later
-- No baked-in presentation logic
-
-Architecture:
-  Agent (tool execution) ← Session (conversation state)
-       ↑
-  Clients (Console, Slack, Telegram, HTTP)
+Fresh context by default (like Cursor). Named sessions are opt-in.
 
 Examples:
-  # Start a new session
-  zen-claw agent "analyze project"
+  # Fresh session (no persistence)
+  zen-claw agent "refactor this function"
   
-  # Start interactive mode (no arguments)
+  # Interactive mode
   zen-claw agent
   
-  # Start with session ID (save for continuing)
-  zen-claw agent --session-id my-task "check codebase"
+  # Named session (persisted for later)
+  zen-claw agent --session my-project "analyze codebase"
   
-  # Run with verbose output for debugging
-  zen-claw agent --verbose "debug this issue"
-  
-  # Switch models during session:
-  # Type "/models" to see available models
-  # Type "/model qwen/qwen3-coder-30b-a3b-instruct" to switch to Qwen
-  
-  # Continue session from another client (future):
-  # Use same session ID in Slack/Telegram bot`,
+  # Resume a named session
+  zen-claw agent --session my-project "continue from before"
+
+Multi-AI modes (separate commands):
+  zen-claw consensus   # 3 AIs → arbiter → better blueprints
+  zen-claw factory     # Coordinator + specialist AIs`,
 		Args: cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			task := ""
@@ -70,7 +57,7 @@ Examples:
 	cmd.Flags().StringVar(&model, "model", "", "AI model (e.g., deepseek-chat)")
 	cmd.Flags().StringVar(&provider, "provider", "", "AI provider (deepseek, openai, glm, minimax, qwen, kimi)")
 	cmd.Flags().StringVar(&workingDir, "working-dir", ".", "Working directory for tools")
-	cmd.Flags().StringVar(&sessionID, "session-id", "", "Session ID (for continuing sessions)")
+	cmd.Flags().StringVar(&sessionID, "session", "", "Named session to save/resume (omit for fresh context)")
 	cmd.Flags().BoolVar(&showProgress, "progress", false, "Show progress in console (CLI only)")
 	cmd.Flags().IntVar(&maxSteps, "max-steps", 100, "Maximum tool execution steps (default 100 for complex tasks)")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Enable verbose output for debugging")
@@ -211,41 +198,25 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 
 	if showProgress {
 		fmt.Printf("\n💡 To continue this session:\n")
-		fmt.Printf("   zen-claw agent --session-id %s \"your next task\"\n", resp.SessionID)
+		fmt.Printf("   zen-claw agent --session %s \"your next task\"\n", resp.SessionID)
 	}
 }
 
 // runInteractiveMode runs the agent in interactive mode
 func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool) {
-	fmt.Println("🚀 Zen Agent - Interactive Mode (Multi-Session)")
-	fmt.Println("═" + strings.Repeat("═", 78))
-	fmt.Println("Entering interactive mode. Type your tasks, one per line.")
-	fmt.Println("Session commands:")
-	fmt.Println("  /sessions           - List all sessions with status")
-	fmt.Println("  /new [name]         - Create new session (backgrounds current)")
-	fmt.Println("  /switch <id>        - Switch to another session")
-	fmt.Println("  /background         - Move current session to background")
-	fmt.Println("  /close [id]         - Close/delete a session")
-	fmt.Println("Provider commands:")
-	fmt.Println("  /providers          - List available AI providers")
-	fmt.Println("  /provider <name>    - Switch to a specific provider")
-	fmt.Println("  /models            - List models for current provider")
-	fmt.Println("  /model <name>      - Switch model within current provider")
-	fmt.Println("Preferences (view/edit AI routing):")
-	fmt.Println("  /prefs              - Show current AI preferences")
-	fmt.Println("  /prefs fallback     - Show/set provider fallback order")
-	fmt.Println("  /prefs consensus    - Show/set consensus workers and arbiter")
-	fmt.Println("  /prefs factory      - Show/set factory specialists")
-	fmt.Println("Other commands:")
-	fmt.Println("  /context-limit [n] - Set context limit (default 50, 0=unlimited)")
-	fmt.Println("  /exit, /quit       - Exit interactive mode")
-	fmt.Println("  /help              - Show this help")
+	fmt.Println("🚀 Zen Agent")
 	fmt.Println("═" + strings.Repeat("═", 78))
 
+	// Show session info
 	if sessionID != "" {
-		fmt.Printf("Session ID: %s\n", sessionID)
+		fmt.Printf("Session: %s (will be saved)\n", sessionID)
+	} else {
+		fmt.Println("Fresh context (use --session <name> to save)")
 	}
 	fmt.Printf("Working directory: %s\n", workingDir)
+	fmt.Println()
+	fmt.Println("Commands: /models, /model <name>, /provider <name>, /clear, /help, /exit")
+	fmt.Println("═" + strings.Repeat("═", 78))
 
 	// Create gateway client
 	client := NewGatewayClient("http://localhost:8080")
@@ -338,123 +309,64 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			fmt.Println("Exiting interactive mode...")
 			return
 		case input == "/help":
-			fmt.Println("Session commands:")
-			fmt.Println("  /sessions           - List all sessions with status")
-			fmt.Println("  /new [name]         - Create new session (backgrounds current)")
-			fmt.Println("  /switch <id>        - Switch to another session")
-			fmt.Println("  /background         - Move current session to background")
-			fmt.Println("  /close [id]         - Close/delete a session")
-			fmt.Println("Provider commands:")
-			fmt.Println("  /providers          - List available AI providers")
-			fmt.Println("  /provider <name>    - Switch to a specific provider")
-			fmt.Println("  /models            - List models for current provider")
-			fmt.Println("  /model <name>      - Switch model within current provider")
-			fmt.Println("Other commands:")
-			fmt.Println("  /context-limit [n] - Set context limit (default 50, 0=unlimited)")
-			fmt.Println("  /exit, /quit       - Exit interactive mode")
-			fmt.Println("  /help              - Show this help")
+			fmt.Println("\nCommands:")
+			fmt.Println("  /clear              - Clear conversation history (fresh start)")
+			fmt.Println("  /models             - List available models")
+			fmt.Println("  /model <name>       - Switch to a different model")
+			fmt.Println("  /provider <name>    - Switch provider (deepseek, qwen, minimax, kimi)")
+			fmt.Println("  /context-limit [n]  - Set context limit (0=unlimited)")
+			fmt.Println("  /exit               - Exit")
+			fmt.Println()
+			fmt.Println("Multi-AI modes (separate commands):")
+			fmt.Println("  zen-claw consensus  - 3 AIs → arbiter → better blueprints")
+			fmt.Println("  zen-claw factory    - Coordinator + specialist AIs")
 			continue
 
-		// Session management commands
+		case input == "/clear":
+			// Clear conversation - start fresh (like Cursor Cmd+N)
+			sessionID = "" // Force new session
+			fmt.Println("✓ Cleared. Fresh context.")
+			continue
+
+		// Simplified session commands - only show saved (named) sessions
 		case input == "/sessions":
 			sessions, err := client.ListSessions()
 			if err != nil {
 				fmt.Printf("❌ Error: %v\n", err)
 				continue
 			}
-			fmt.Printf("\n📋 Sessions (%d/%d active):\n", sessions.ActiveCount, sessions.MaxSessions)
-			fmt.Println(strings.Repeat("─", 60))
-			if len(sessions.Sessions) == 0 {
-				fmt.Println("  No sessions found")
-			}
+			// Filter to only show named sessions (not auto-generated session_* ones)
+			var namedSessions []SessionEntry
 			for _, s := range sessions.Sessions {
-				stateIcon := "⏸️"
-				if s.State == "active" {
-					stateIcon = "▶️"
-				} else if s.State == "idle" {
-					stateIcon = "💤"
+				if !strings.HasPrefix(s.ID, "session_") {
+					namedSessions = append(namedSessions, s)
 				}
+			}
+			fmt.Println("\n📋 Saved Sessions:")
+			fmt.Println(strings.Repeat("─", 50))
+			if len(namedSessions) == 0 {
+				fmt.Println("  No saved sessions")
+				fmt.Println("  Use --session <name> to save a session")
+			}
+			for _, s := range namedSessions {
 				current := ""
 				if s.ID == sessionID {
 					current = " ← current"
 				}
-				fmt.Printf("  %s %s (%d msgs, %s)%s\n", stateIcon, s.ID, s.MessageCount, s.State, current)
+				fmt.Printf("  • %s (%d messages)%s\n", s.ID, s.MessageCount, current)
 			}
-			fmt.Println(strings.Repeat("─", 60))
+			fmt.Println(strings.Repeat("─", 50))
 			continue
 
-		case strings.HasPrefix(input, "/new"):
-			// Background current session if it exists
-			if sessionID != "" {
-				if err := client.BackgroundSession(sessionID); err != nil {
-					fmt.Printf("⚠️ Warning: Could not background current session: %v\n", err)
-				} else {
-					fmt.Printf("⏸️ Backgrounded session: %s\n", sessionID)
-				}
-			}
-			// Create new session
-			parts := strings.Fields(input)
-			if len(parts) > 1 {
-				sessionID = parts[1]
-			} else {
-				sessionID = fmt.Sprintf("session_%d", time.Now().Unix())
-			}
-			fmt.Printf("▶️ New session: %s\n", sessionID)
-			continue
-
-		case strings.HasPrefix(input, "/switch "):
-			newSessionID := strings.TrimSpace(strings.TrimPrefix(input, "/switch "))
-			if newSessionID == "" {
-				fmt.Println("Usage: /switch <session-id>")
+		case strings.HasPrefix(input, "/load "):
+			// Load a saved session
+			name := strings.TrimSpace(strings.TrimPrefix(input, "/load "))
+			if name == "" || strings.HasPrefix(name, "session_") {
+				fmt.Println("Usage: /load <session-name>")
 				continue
 			}
-			// Background current session
-			if sessionID != "" && sessionID != newSessionID {
-				if err := client.BackgroundSession(sessionID); err != nil {
-					fmt.Printf("⚠️ Warning: Could not background current session: %v\n", err)
-				}
-			}
-			// Activate new session
-			if err := client.ActivateSession(newSessionID, "cli"); err != nil {
-				fmt.Printf("❌ Error: %v\n", err)
-				continue
-			}
-			sessionID = newSessionID
-			fmt.Printf("▶️ Switched to session: %s\n", sessionID)
-			continue
-
-		case input == "/background":
-			if sessionID == "" {
-				fmt.Println("No current session to background")
-				continue
-			}
-			if err := client.BackgroundSession(sessionID); err != nil {
-				fmt.Printf("❌ Error: %v\n", err)
-				continue
-			}
-			fmt.Printf("⏸️ Session %s moved to background\n", sessionID)
-			fmt.Println("Use /switch <id> to switch to another session, or /new to create one")
-			continue
-
-		case strings.HasPrefix(input, "/close"):
-			parts := strings.Fields(input)
-			targetSession := sessionID
-			if len(parts) > 1 {
-				targetSession = parts[1]
-			}
-			if targetSession == "" {
-				fmt.Println("No session to close. Usage: /close [session-id]")
-				continue
-			}
-			if err := client.DeleteSession(targetSession); err != nil {
-				fmt.Printf("❌ Error: %v\n", err)
-				continue
-			}
-			fmt.Printf("🗑️ Closed session: %s\n", targetSession)
-			if targetSession == sessionID {
-				sessionID = ""
-				fmt.Println("Create a new session with /new or switch with /switch <id>")
-			}
+			sessionID = name
+			fmt.Printf("✓ Loaded session: %s\n", sessionID)
 			continue
 
 		// Preferences commands

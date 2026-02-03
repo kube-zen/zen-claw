@@ -1,12 +1,16 @@
 // Package consensus implements multi-model AI consensus for better blueprint generation.
-// This sends requests to 3+ AIs in parallel, then uses an arbiter to synthesize
-// the best ideas from each into a superior result.
+// All workers receive the SAME prompt with the SAME role.
+// The arbiter gets the original question + all worker outputs, scores each worker,
+// and synthesizes the best ideas into a unified blueprint.
 package consensus
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +24,6 @@ import (
 type Worker struct {
 	Provider string // e.g., "deepseek", "qwen", "minimax"
 	Model    string // specific model
-	Role     string // e.g., "systems_thinker", "implementation_realist", "edge_case_hunter"
 }
 
 // WorkerResult holds a worker's response
@@ -29,12 +32,14 @@ type WorkerResult struct {
 	Response string
 	Duration time.Duration
 	Error    error
+	Score    int    // 1-10 score assigned by arbiter
+	Feedback string // Brief feedback from arbiter
 }
 
 // ConsensusRequest represents a request for consensus
 type ConsensusRequest struct {
 	Prompt      string   // The original request/idea
-	Domain      string   // e.g., "architecture", "api_design", "database_schema", "code_review"
+	Role        string   // The expert role for ALL workers AND arbiter (e.g., "security_architect")
 	Workers     []Worker // Optional custom workers (defaults used if empty)
 	MaxTokens   int      // Max tokens per worker response (default 4000)
 	Temperature float64  // Temperature for worker responses (default 0.7)
@@ -43,28 +48,47 @@ type ConsensusRequest struct {
 // ConsensusResult holds the synthesized result
 type ConsensusResult struct {
 	Blueprint       string         // The synthesized blueprint
-	WorkerResults   []WorkerResult // Individual worker responses
+	WorkerResults   []WorkerResult // Individual worker responses with scores
 	ArbiterModel    string         // Which model arbitrated
 	TotalDuration   time.Duration  // Total processing time
 	WorkerDuration  time.Duration  // Time for parallel worker calls
 	ArbiterDuration time.Duration  // Time for arbiter synthesis
+	Role            string         // The role used for this consensus
+}
+
+// WorkerStats tracks long-term worker performance
+type WorkerStats struct {
+	Provider     string    `json:"provider"`
+	Model        string    `json:"model"`
+	TotalTasks   int       `json:"total_tasks"`
+	TotalScore   int       `json:"total_score"`
+	AvgScore     float64   `json:"avg_score"`
+	LastUsed     time.Time `json:"last_used"`
+	BestRoles    []string  `json:"best_roles"` // Roles where this worker excelled
 }
 
 // Engine manages multi-model consensus
 type Engine struct {
-	cfg     *config.Config
-	factory *providers.Factory
+	cfg       *config.Config
+	factory   *providers.Factory
+	statsFile string
+	stats     map[string]*WorkerStats // provider/model -> stats
+	statsMu   sync.RWMutex
 }
 
 // NewEngine creates a new consensus engine
 func NewEngine(cfg *config.Config) *Engine {
-	return &Engine{
-		cfg:     cfg,
-		factory: providers.NewFactory(cfg),
+	e := &Engine{
+		cfg:       cfg,
+		factory:   providers.NewFactory(cfg),
+		statsFile: filepath.Join(os.TempDir(), "zen-claw-consensus-stats.json"),
+		stats:     make(map[string]*WorkerStats),
 	}
+	e.loadStats()
+	return e
 }
 
-// DefaultWorkers returns the worker configuration from config
+// DefaultWorkers returns the worker configuration from config (without roles - role is per-request)
 func (e *Engine) DefaultWorkers() []Worker {
 	workers := e.cfg.GetConsensusWorkers()
 	result := make([]Worker, len(workers))
@@ -72,7 +96,6 @@ func (e *Engine) DefaultWorkers() []Worker {
 		result[i] = Worker{
 			Provider: w.Provider,
 			Model:    w.Model,
-			Role:     w.Role,
 		}
 	}
 	return result
@@ -109,7 +132,12 @@ func (e *Engine) Generate(ctx context.Context, req ConsensusRequest) (*Consensus
 		return nil, fmt.Errorf("consensus requires at least 2 workers, got %d (check API keys)", len(workers))
 	}
 
-	log.Printf("[Consensus] Starting with %d workers for domain: %s", len(workers), req.Domain)
+	// Default role if not specified
+	if req.Role == "" {
+		req.Role = "senior_software_engineer"
+	}
+
+	log.Printf("[Consensus] Starting with %d workers, role: %s", len(workers), req.Role)
 
 	// Set defaults
 	if req.MaxTokens == 0 {
@@ -119,10 +147,10 @@ func (e *Engine) Generate(ctx context.Context, req ConsensusRequest) (*Consensus
 		req.Temperature = 0.7
 	}
 
-	// Build worker prompt based on domain
+	// Build worker prompt - ALL workers get the SAME prompt with the SAME role
 	workerPrompt := e.buildWorkerPrompt(req)
 
-	// Phase 1: Parallel worker calls
+	// Phase 1: Parallel worker calls (all with same role and prompt)
 	workerStart := time.Now()
 	results := e.callWorkersParallel(ctx, workers, workerPrompt, req.MaxTokens, req.Temperature)
 	workerDuration := time.Since(workerStart)
@@ -136,18 +164,20 @@ func (e *Engine) Generate(ctx context.Context, req ConsensusRequest) (*Consensus
 	}
 
 	if validCount < 2 {
-		// Return partial results with error
 		return &ConsensusResult{
 			Blueprint:      "",
 			WorkerResults:  results,
 			TotalDuration:  time.Since(start),
 			WorkerDuration: workerDuration,
+			Role:           req.Role,
 		}, fmt.Errorf("only %d valid worker responses (need at least 2)", validCount)
 	}
 
-	// Phase 2: Arbiter synthesis
+	// Phase 2: Arbiter synthesis with CLEAN CONTEXT (no history, just the task)
+	// Arbiter gets: original question + all worker outputs
+	// Arbiter also scores each worker
 	arbiterStart := time.Now()
-	blueprint, arbiterModel, err := e.synthesizeWithArbiter(ctx, req, results)
+	blueprint, arbiterModel, scoredResults, err := e.synthesizeWithArbiter(ctx, req, results)
 	arbiterDuration := time.Since(arbiterStart)
 
 	if err != nil {
@@ -157,8 +187,12 @@ func (e *Engine) Generate(ctx context.Context, req ConsensusRequest) (*Consensus
 			TotalDuration:   time.Since(start),
 			WorkerDuration:  workerDuration,
 			ArbiterDuration: arbiterDuration,
+			Role:            req.Role,
 		}, fmt.Errorf("arbiter synthesis failed: %w", err)
 	}
+
+	// Update worker stats with scores
+	e.updateWorkerStats(scoredResults, req.Role)
 
 	log.Printf("[Consensus] Complete: %d workers in %v, arbiter in %v, total %v",
 		len(workers), workerDuration.Round(time.Millisecond),
@@ -166,59 +200,92 @@ func (e *Engine) Generate(ctx context.Context, req ConsensusRequest) (*Consensus
 
 	return &ConsensusResult{
 		Blueprint:       blueprint,
-		WorkerResults:   results,
+		WorkerResults:   scoredResults,
 		ArbiterModel:    arbiterModel,
 		TotalDuration:   time.Since(start),
 		WorkerDuration:  workerDuration,
 		ArbiterDuration: arbiterDuration,
+		Role:            req.Role,
 	}, nil
 }
 
-// buildWorkerPrompt constructs the prompt for workers based on domain
+// buildWorkerPrompt constructs the prompt - same for ALL workers
 func (e *Engine) buildWorkerPrompt(req ConsensusRequest) string {
-	domainContext := ""
-	switch req.Domain {
-	case "architecture":
-		domainContext = `You are an expert software architect. Focus on:
-- System structure and component organization
-- Data flow and dependencies
-- Scalability and maintainability patterns
-- Trade-offs and decision rationale`
-	case "api_design":
-		domainContext = `You are an expert API designer. Focus on:
-- RESTful principles or appropriate protocol choice
-- Endpoint structure and naming conventions
-- Request/response schemas
-- Error handling and versioning`
-	case "database_schema":
-		domainContext = `You are an expert database designer. Focus on:
-- Schema normalization and denormalization trade-offs
-- Indexing strategy
-- Query patterns and performance
-- Data integrity constraints`
-	case "code_review":
-		domainContext = `You are an expert code reviewer. Focus on:
-- Code correctness and bug detection
-- Performance and efficiency
-- Maintainability and readability
-- Best practices and idiomatic patterns`
-	default:
-		domainContext = `You are a senior software engineer. Provide comprehensive technical analysis.`
-	}
+	roleDescription := getRoleDescription(req.Role)
 
-	return fmt.Sprintf(`%s
+	return fmt.Sprintf(`You are a %s.
 
-Analyze the following request and provide your detailed technical recommendation:
-
----
 %s
----
 
-Be specific, actionable, and thorough. Include code examples where helpful.
-Format your response as a clear technical specification.`, domainContext, req.Prompt)
+TASK:
+%s
+
+INSTRUCTIONS:
+1. Analyze this request thoroughly from your expert perspective
+2. Provide a detailed, actionable technical recommendation
+3. Include specific implementation details and code examples where helpful
+4. Identify potential risks, edge cases, and mitigation strategies
+5. Be decisive and specific - your recommendation will be reviewed
+
+Format your response as a clear technical specification.`, req.Role, roleDescription, req.Prompt)
 }
 
-// callWorkersParallel calls all workers in parallel
+// getRoleDescription returns a description for the given role
+func getRoleDescription(role string) string {
+	descriptions := map[string]string{
+		"security_architect": `Your expertise includes:
+- Zero-trust architecture and defense in depth
+- Authentication, authorization, and access control
+- Encryption, key management, and secure communications
+- Threat modeling and vulnerability assessment
+- Compliance frameworks (SOC2, GDPR, HIPAA)
+- Secure coding practices and security testing`,
+
+		"software_architect": `Your expertise includes:
+- System design and component organization
+- Scalability, reliability, and performance patterns
+- Microservices and distributed systems
+- Data flow and integration patterns
+- Technology selection and trade-off analysis`,
+
+		"api_designer": `Your expertise includes:
+- RESTful API design and OpenAPI specifications
+- gRPC and protocol buffer design
+- API versioning and backward compatibility
+- Error handling and response schemas
+- Rate limiting and API security`,
+
+		"database_architect": `Your expertise includes:
+- Schema design and normalization
+- Query optimization and indexing strategies
+- Data modeling for different access patterns
+- Replication, sharding, and consistency models
+- Database selection (SQL vs NoSQL)`,
+
+		"devops_engineer": `Your expertise includes:
+- CI/CD pipeline design and automation
+- Container orchestration (Kubernetes)
+- Infrastructure as Code (Terraform, Helm)
+- Monitoring, logging, and observability
+- Deployment strategies and rollback procedures`,
+
+		"frontend_architect": `Your expertise includes:
+- Component architecture and state management
+- Performance optimization and lazy loading
+- Accessibility and responsive design
+- Testing strategies (unit, integration, E2E)
+- Build tooling and bundler configuration`,
+	}
+
+	if desc, ok := descriptions[role]; ok {
+		return desc
+	}
+
+	// Default for unknown roles
+	return fmt.Sprintf("You have deep expertise in %s. Apply your specialized knowledge to provide the best possible recommendation.", strings.ReplaceAll(role, "_", " "))
+}
+
+// callWorkersParallel calls all workers in parallel with the SAME prompt
 func (e *Engine) callWorkersParallel(ctx context.Context, workers []Worker, prompt string, maxTokens int, temperature float64) []WorkerResult {
 	results := make([]WorkerResult, len(workers))
 	var wg sync.WaitGroup
@@ -240,14 +307,12 @@ func (e *Engine) callWorkersParallel(ctx context.Context, workers []Worker, prom
 				return
 			}
 
-			// Build request with role context
-			rolePrompt := fmt.Sprintf("[Your role: %s]\n\n%s", w.Role, prompt)
-
-			// Make AI call
+			// ALL workers get the SAME prompt (no role prefix - role is in the prompt)
+			// CLEAN CONTEXT: only the user message, no system message or history
 			resp, err := provider.Chat(ctx, ai.ChatRequest{
 				Model: w.Model,
 				Messages: []ai.Message{
-					{Role: "user", Content: rolePrompt},
+					{Role: "user", Content: prompt},
 				},
 				MaxTokens:   maxTokens,
 				Temperature: temperature,
@@ -277,8 +342,9 @@ func (e *Engine) callWorkersParallel(ctx context.Context, workers []Worker, prom
 	return results
 }
 
-// synthesizeWithArbiter uses an arbiter model to synthesize worker responses
-func (e *Engine) synthesizeWithArbiter(ctx context.Context, req ConsensusRequest, results []WorkerResult) (string, string, error) {
+// synthesizeWithArbiter uses an arbiter model to synthesize and score worker responses
+// CLEAN CONTEXT: arbiter gets only the original question + worker outputs, no history
+func (e *Engine) synthesizeWithArbiter(ctx context.Context, req ConsensusRequest, results []WorkerResult) (string, string, []WorkerResult, error) {
 	// Choose arbiter based on config preference order
 	arbiterOrder := e.cfg.GetArbiterOrder()
 	var arbiter ai.Provider
@@ -294,68 +360,221 @@ func (e *Engine) synthesizeWithArbiter(ctx context.Context, req ConsensusRequest
 	}
 
 	if arbiter == nil {
-		return "", "", fmt.Errorf("no arbiter provider available (tried: %v)", arbiterOrder)
+		return "", "", results, fmt.Errorf("no arbiter provider available (tried: %v)", arbiterOrder)
 	}
 
-	// Build arbiter prompt
+	// Build worker responses section
 	var workerResponses strings.Builder
-	for _, r := range results {
+	workerIDs := []string{}
+	for i, r := range results {
 		if r.Error != nil || r.Response == "" {
 			continue
 		}
-		workerResponses.WriteString(fmt.Sprintf("\n## [%s - %s]\n%s\n",
-			strings.ToUpper(r.Worker.Provider), r.Worker.Role, r.Response))
+		workerID := fmt.Sprintf("WORKER_%d_%s", i+1, strings.ToUpper(r.Worker.Provider))
+		workerIDs = append(workerIDs, workerID)
+		workerResponses.WriteString(fmt.Sprintf("\n\n=== %s (%s) ===\n%s\n",
+			workerID, r.Worker.Model, r.Response))
 	}
 
-	arbiterPrompt := fmt.Sprintf(`You are the Chief Technical Officer synthesizing proposals from your engineering team.
+	// Arbiter prompt - SAME ROLE as workers, CLEAN CONTEXT
+	roleDescription := getRoleDescription(req.Role)
+	arbiterPrompt := fmt.Sprintf(`You are a %s acting as the lead reviewer.
 
-ORIGINAL REQUEST:
 %s
 
-DOMAIN: %s
-
-TEAM PROPOSALS:
+ORIGINAL TASK (this was given to all team members):
 %s
 
-YOUR TASK:
-Synthesize ONE comprehensive technical specification that:
-1. Takes the best structural insights from each proposal
-2. Uses the most practical implementation details
-3. Addresses all flagged risks and edge cases
-4. Resolves any contradictions explicitly with clear rationale
-5. Produces a unified, actionable blueprint
+TEAM RESPONSES:
+%s
+
+YOUR RESPONSIBILITIES:
+
+1. SYNTHESIZE: Create ONE comprehensive technical specification that:
+   - Takes the best insights from each response
+   - Resolves any contradictions with clear rationale
+   - Produces a unified, actionable blueprint
+   - Maintains your expert perspective as a %s
+
+2. SCORE EACH WORKER: At the END of your response, include a JSON block with scores:
+   - Rate each worker 1-10 based on: accuracy, completeness, practicality, insight
+   - Provide brief feedback (1 sentence) for each
 
 OUTPUT FORMAT:
-- Start with a 2-3 sentence executive summary
-- Provide clear sections with headers
-- Include specific technical details and code examples
-- End with "Next Steps" actionable items
 
-Be decisive. This blueprint will be implemented.`,
-		req.Prompt, req.Domain, workerResponses.String())
+[Your synthesized blueprint here - be comprehensive and actionable]
 
-	log.Printf("[Consensus] Arbiter %s synthesizing %d responses...", arbiterName, len(results))
+---SCORES---
+` + "```json\n" + `{
+  "scores": [
+%s
+  ]
+}
+` + "```",
+		req.Role, roleDescription, req.Prompt, workerResponses.String(), req.Role,
+		buildScoreTemplate(workerIDs))
 
-	// Call arbiter with generous token limit
+	log.Printf("[Consensus] Arbiter %s (role: %s) synthesizing %d responses...", arbiterName, req.Role, len(results))
+
+	// Call arbiter with CLEAN CONTEXT - only this one message, no history
 	resp, err := arbiter.Chat(ctx, ai.ChatRequest{
+		Model: e.cfg.GetModel(arbiterName),
 		Messages: []ai.Message{
 			{Role: "user", Content: arbiterPrompt},
 		},
-		MaxTokens:   8000, // Arbiter needs more space for synthesis
-		Temperature: 0.5,  // Lower temp for more focused synthesis
+		MaxTokens:   8000,
+		Temperature: 0.5,
 	})
 
 	if err != nil {
-		return "", arbiterName, fmt.Errorf("arbiter call failed: %w", err)
+		return "", arbiterName, results, fmt.Errorf("arbiter call failed: %w", err)
 	}
 
-	return resp.Content, arbiterName, nil
+	// Parse response and extract scores
+	blueprint, scoredResults := parseArbiterResponse(resp.Content, results)
+
+	return blueprint, arbiterName, scoredResults, nil
+}
+
+// buildScoreTemplate creates the JSON template for scores
+func buildScoreTemplate(workerIDs []string) string {
+	var lines []string
+	for _, id := range workerIDs {
+		lines = append(lines, fmt.Sprintf(`    {"worker": "%s", "score": 0, "feedback": ""}`, id))
+	}
+	return strings.Join(lines, ",\n")
+}
+
+// parseArbiterResponse extracts blueprint and scores from arbiter response
+func parseArbiterResponse(response string, results []WorkerResult) (string, []WorkerResult) {
+	// Split at ---SCORES--- marker
+	parts := strings.Split(response, "---SCORES---")
+	blueprint := strings.TrimSpace(parts[0])
+
+	// Try to parse scores if present
+	if len(parts) > 1 {
+		scoresSection := parts[1]
+
+		// Find JSON block
+		jsonStart := strings.Index(scoresSection, "{")
+		jsonEnd := strings.LastIndex(scoresSection, "}")
+
+		if jsonStart >= 0 && jsonEnd > jsonStart {
+			jsonStr := scoresSection[jsonStart : jsonEnd+1]
+
+			var scoreData struct {
+				Scores []struct {
+					Worker   string `json:"worker"`
+					Score    int    `json:"score"`
+					Feedback string `json:"feedback"`
+				} `json:"scores"`
+			}
+
+			if err := json.Unmarshal([]byte(jsonStr), &scoreData); err == nil {
+				// Match scores to results
+				for i := range results {
+					workerID := fmt.Sprintf("WORKER_%d_%s", i+1, strings.ToUpper(results[i].Worker.Provider))
+					for _, s := range scoreData.Scores {
+						if strings.Contains(s.Worker, workerID) || strings.Contains(workerID, s.Worker) {
+							results[i].Score = s.Score
+							results[i].Feedback = s.Feedback
+							break
+						}
+					}
+				}
+			} else {
+				log.Printf("[Consensus] Failed to parse scores JSON: %v", err)
+			}
+		}
+	}
+
+	return blueprint, results
+}
+
+// updateWorkerStats updates long-term worker statistics
+func (e *Engine) updateWorkerStats(results []WorkerResult, role string) {
+	e.statsMu.Lock()
+	defer e.statsMu.Unlock()
+
+	for _, r := range results {
+		if r.Error != nil || r.Score == 0 {
+			continue
+		}
+
+		key := fmt.Sprintf("%s/%s", r.Worker.Provider, r.Worker.Model)
+		stats, exists := e.stats[key]
+		if !exists {
+			stats = &WorkerStats{
+				Provider:  r.Worker.Provider,
+				Model:     r.Worker.Model,
+				BestRoles: []string{},
+			}
+			e.stats[key] = stats
+		}
+
+		stats.TotalTasks++
+		stats.TotalScore += r.Score
+		stats.AvgScore = float64(stats.TotalScore) / float64(stats.TotalTasks)
+		stats.LastUsed = time.Now()
+
+		// Track best roles (score >= 8)
+		if r.Score >= 8 && !contains(stats.BestRoles, role) {
+			stats.BestRoles = append(stats.BestRoles, role)
+		}
+	}
+
+	e.saveStats()
+}
+
+// GetWorkerStats returns current worker statistics
+func (e *Engine) GetWorkerStats() map[string]*WorkerStats {
+	e.statsMu.RLock()
+	defer e.statsMu.RUnlock()
+
+	// Return a copy
+	result := make(map[string]*WorkerStats)
+	for k, v := range e.stats {
+		statsCopy := *v
+		result[k] = &statsCopy
+	}
+	return result
+}
+
+// loadStats loads worker statistics from disk
+func (e *Engine) loadStats() {
+	data, err := os.ReadFile(e.statsFile)
+	if err != nil {
+		return
+	}
+
+	var stats map[string]*WorkerStats
+	if err := json.Unmarshal(data, &stats); err == nil {
+		e.stats = stats
+	}
+}
+
+// saveStats saves worker statistics to disk
+func (e *Engine) saveStats() {
+	data, err := json.MarshalIndent(e.stats, "", "  ")
+	if err != nil {
+		return
+	}
+	os.WriteFile(e.statsFile, data, 0644)
+}
+
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }
 
 // QuickConsensus is a convenience method for simple consensus requests
-func (e *Engine) QuickConsensus(ctx context.Context, prompt, domain string) (*ConsensusResult, error) {
+func (e *Engine) QuickConsensus(ctx context.Context, prompt, role string) (*ConsensusResult, error) {
 	return e.Generate(ctx, ConsensusRequest{
 		Prompt: prompt,
-		Domain: domain,
+		Role:   role,
 	})
 }

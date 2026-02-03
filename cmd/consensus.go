@@ -13,39 +13,50 @@ import (
 )
 
 func newConsensusCmd() *cobra.Command {
-	var domain string
-	var workers int
+	var role string
 	var verbose bool
+	var showStats bool
 
 	cmd := &cobra.Command{
 		Use:   "consensus [prompt]",
 		Short: "Multi-AI consensus for better blueprints",
 		Long: `Generate blueprints using multi-model AI consensus.
 
-Sends your request to 3+ AI models in parallel, then synthesizes
-the best ideas from each into a superior result.
+Sends your request to 3+ AI models in parallel with the SAME role,
+then an arbiter synthesizes the best ideas and scores each worker.
 
-This is ideal for:
-- Architecture decisions
-- API design
-- Database schema design
-- Code review
-- Any complex technical decision
+The role defines the expert perspective for ALL workers AND the arbiter.
+This ensures everyone approaches the problem with the same expertise.
+
+Available roles:
+  - security_architect    (security systems, zero-trust, compliance)
+  - software_architect    (system design, scalability, patterns)
+  - api_designer          (REST/gRPC design, schemas, versioning)
+  - database_architect    (schema design, optimization, modeling)
+  - devops_engineer       (CI/CD, Kubernetes, infrastructure)
+  - frontend_architect    (components, state, performance)
+  - Or any custom role    (e.g., "kubernetes_operator_expert")
 
 Examples:
-  # Architecture consensus
-  zen-claw consensus --domain architecture "Design a microservices architecture for e-commerce"
+  # Security architecture (all AIs act as security architects)
+  zen-claw consensus --role security_architect "Design zero-trust auth for microservices"
 
   # API design
-  zen-claw consensus --domain api_design "REST API for user management with RBAC"
+  zen-claw consensus --role api_designer "REST API for user management with RBAC"
 
-  # Code review
-  zen-claw consensus --domain code_review "Review this implementation: $(cat main.go)"
+  # Custom role
+  zen-claw consensus --role "kubernetes_operator_expert" "Design CRD for database management"
 
-  # Quick consensus (reads from stdin)
-  cat requirements.md | zen-claw consensus --domain architecture`,
+  # View worker performance stats
+  zen-claw consensus --stats`,
 		Args: cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
+			// Show stats mode
+			if showStats {
+				showWorkerStats()
+				return
+			}
+
 			prompt := ""
 			if len(args) > 0 {
 				prompt = args[0]
@@ -62,24 +73,25 @@ Examples:
 
 			if prompt == "" {
 				fmt.Println("Error: Please provide a prompt or pipe input via stdin")
+				fmt.Println("       Or use --stats to view worker performance")
 				os.Exit(1)
 			}
 
-			runConsensus(prompt, domain, workers, verbose)
+			runConsensus(prompt, role, verbose)
 		},
 	}
 
-	cmd.Flags().StringVar(&domain, "domain", "architecture", "Domain type: architecture, api_design, database_schema, code_review")
-	cmd.Flags().IntVar(&workers, "workers", 3, "Number of AI workers (default 3, requires API keys)")
+	cmd.Flags().StringVar(&role, "role", "software_architect", "Expert role for all workers (e.g., security_architect, api_designer)")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Show individual worker responses")
+	cmd.Flags().BoolVar(&showStats, "stats", false, "Show worker performance statistics")
 
 	return cmd
 }
 
-func runConsensus(prompt, domain string, workers int, verbose bool) {
+func runConsensus(prompt, role string, verbose bool) {
 	fmt.Println("🤖 Zen Claw - Multi-AI Consensus")
 	fmt.Println("═" + strings.Repeat("═", 78))
-	fmt.Printf("Domain: %s\n", domain)
+	fmt.Printf("Role: %s (all workers + arbiter)\n", role)
 	fmt.Printf("Prompt: %s\n", truncatePrompt(prompt, 100))
 	fmt.Println()
 
@@ -106,9 +118,9 @@ func runConsensus(prompt, domain string, workers int, verbose bool) {
 		os.Exit(1)
 	}
 
-	fmt.Printf("🔄 Using %d AI workers:\n", len(availableWorkers))
+	fmt.Printf("🔄 Using %d AI workers (all as %s):\n", len(availableWorkers), role)
 	for _, w := range availableWorkers {
-		fmt.Printf("   • %s/%s (%s)\n", w.Provider, w.Model, w.Role)
+		fmt.Printf("   • %s/%s\n", w.Provider, w.Model)
 	}
 	fmt.Println()
 
@@ -122,7 +134,7 @@ func runConsensus(prompt, domain string, workers int, verbose bool) {
 
 	result, err := engine.Generate(ctx, consensus.ConsensusRequest{
 		Prompt: prompt,
-		Domain: domain,
+		Role:   role,
 	})
 
 	if err != nil {
@@ -145,6 +157,26 @@ func runConsensus(prompt, domain string, workers int, verbose bool) {
 	fmt.Printf("✓ Arbiter (%s) synthesized in %v\n", result.ArbiterModel, result.ArbiterDuration.Round(time.Millisecond))
 	fmt.Printf("✓ Total time: %v\n", time.Since(start).Round(time.Millisecond))
 
+	// Show worker scores
+	fmt.Println("\n📊 Worker Scores (by arbiter):")
+	for _, r := range result.WorkerResults {
+		if r.Error != nil {
+			fmt.Printf("   • %s/%s: ❌ error\n", r.Worker.Provider, r.Worker.Model)
+		} else {
+			scoreEmoji := "⭐"
+			if r.Score >= 8 {
+				scoreEmoji = "🌟"
+			} else if r.Score < 5 {
+				scoreEmoji = "⚠️"
+			}
+			fmt.Printf("   • %s/%s: %s %d/10", r.Worker.Provider, r.Worker.Model, scoreEmoji, r.Score)
+			if r.Feedback != "" {
+				fmt.Printf(" - %s", r.Feedback)
+			}
+			fmt.Println()
+		}
+	}
+
 	// Show individual worker responses if verbose
 	if verbose {
 		fmt.Println("\n" + strings.Repeat("─", 80))
@@ -152,8 +184,8 @@ func runConsensus(prompt, domain string, workers int, verbose bool) {
 		fmt.Println(strings.Repeat("─", 80))
 
 		for _, r := range result.WorkerResults {
-			fmt.Printf("\n### %s/%s (%s) - %v\n",
-				strings.ToUpper(r.Worker.Provider), r.Worker.Model, r.Worker.Role, r.Duration.Round(time.Millisecond))
+			fmt.Printf("\n### %s/%s - %v (score: %d/10)\n",
+				strings.ToUpper(r.Worker.Provider), r.Worker.Model, r.Duration.Round(time.Millisecond), r.Score)
 			if r.Error != nil {
 				fmt.Printf("ERROR: %v\n", r.Error)
 			} else {
@@ -171,6 +203,41 @@ func runConsensus(prompt, domain string, workers int, verbose bool) {
 	fmt.Println(result.Blueprint)
 	fmt.Println()
 	fmt.Println(strings.Repeat("═", 80))
+}
+
+func showWorkerStats() {
+	fmt.Println("📊 Worker Performance Statistics")
+	fmt.Println("═" + strings.Repeat("═", 78))
+
+	// Load config and engine
+	cfg, err := config.LoadConfig("")
+	if err != nil {
+		fmt.Printf("❌ Failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+
+	engine := consensus.NewEngine(cfg)
+	stats := engine.GetWorkerStats()
+
+	if len(stats) == 0 {
+		fmt.Println("No worker statistics yet. Run some consensus tasks first.")
+		return
+	}
+
+	fmt.Printf("\n%-25s %8s %8s %8s   %s\n", "WORKER", "TASKS", "AVG", "TOTAL", "BEST ROLES")
+	fmt.Println(strings.Repeat("─", 80))
+
+	for key, s := range stats {
+		rolesStr := ""
+		if len(s.BestRoles) > 0 {
+			rolesStr = strings.Join(s.BestRoles, ", ")
+		}
+		fmt.Printf("%-25s %8d %8.1f %8d   %s\n",
+			key, s.TotalTasks, s.AvgScore, s.TotalScore, rolesStr)
+	}
+
+	fmt.Println("\n💡 Higher average score = better performance in consensus tasks")
+	fmt.Println("   Best roles = roles where worker scored 8+")
 }
 
 func truncatePrompt(s string, maxLen int) string {
