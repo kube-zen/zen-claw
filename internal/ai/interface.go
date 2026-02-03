@@ -43,8 +43,8 @@ type ChatRequest struct {
 	Temperature             float64       `json:"temperature,omitempty"`
 	MaxTokens               int           `json:"max_tokens,omitempty"`
 	ContextLimit            int           `json:"context_limit,omitempty"`
-	Thinking                bool          `json:"thinking,omitempty"`         // Legacy: simple on/off
-	ThinkingLevel           ThinkingLevel `json:"thinking_level,omitempty"`   // New: off/low/medium/high
+	Thinking                bool          `json:"thinking,omitempty"`       // Legacy: simple on/off
+	ThinkingLevel           ThinkingLevel `json:"thinking_level,omitempty"` // New: off/low/medium/high
 	QwenLargeContextEnabled bool          `json:"qwen_large_context_enabled,omitempty"`
 	Stream                  bool          `json:"stream,omitempty"` // Enable streaming
 }
