@@ -260,7 +260,7 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed solutions.
 - [x] WebSocket support with cancel
 - [x] Session persistence (SQLite, ACID-compliant)
 - [x] Session CLI management (`zen-claw sessions list/info/clean`)
-- [x] Tool system (20+ tools: file, git, web, process, patch)
+- [x] Tool system (21 tools: file, git, web, process, patch, subagent)
 - [x] Interactive CLI with readline
 - [x] Provider fallback routing
 - [x] Circuit breaker (auto-disable unhealthy providers)
@@ -277,6 +277,9 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed solutions.
 - [x] Consensus mode (3 AIs → arbiter)
 - [x] Factory mode (Coordinator + specialists)
 - [x] Guardrails (cost, time, file limits)
+- [x] Subagents (parallel background runs)
+- [x] Smart context routing (size-based tier selection)
+- [x] Cost optimizations (prompt compression, dedup, output limits)
 
 ### Next
 

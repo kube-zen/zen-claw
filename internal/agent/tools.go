@@ -12,6 +12,26 @@ import (
 	"time"
 )
 
+// MaxToolOutputBytes limits tool output to prevent context explosion
+const MaxToolOutputBytes = 32000 // ~8K tokens
+
+// truncateOutput limits output size while preserving usefulness
+func truncateOutput(output string, maxBytes int) string {
+	if len(output) <= maxBytes {
+		return output
+	}
+
+	// Keep head and tail for context
+	headSize := maxBytes * 2 / 3
+	tailSize := maxBytes - headSize - 100 // Reserve for message
+
+	head := output[:headSize]
+	tail := output[len(output)-tailSize:]
+	removed := len(output) - headSize - tailSize
+
+	return fmt.Sprintf("%s\n\n... [%d bytes truncated] ...\n\n%s", head, removed, tail)
+}
+
 // ExecTool executes shell commands
 type ExecTool struct {
 	BaseTool
@@ -87,10 +107,17 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]interface{}) (in
 
 	// Execute with timeout
 	output, err := cmd.CombinedOutput()
+	outputStr := truncateOutput(string(output), MaxToolOutputBytes)
+
 	result := map[string]interface{}{
 		"command":   command,
-		"output":    string(output),
+		"output":    outputStr,
 		"exit_code": cmd.ProcessState.ExitCode(),
+	}
+
+	if len(output) > MaxToolOutputBytes {
+		result["truncated"] = true
+		result["original_size"] = len(output)
 	}
 
 	if err != nil {
@@ -150,11 +177,19 @@ func (t *ReadFileTool) Execute(ctx context.Context, args map[string]interface{})
 		}, nil // Return error as result, not as Go error
 	}
 
-	return map[string]interface{}{
+	contentStr := truncateOutput(string(content), MaxToolOutputBytes)
+	result := map[string]interface{}{
 		"path":    path,
-		"content": string(content),
+		"content": contentStr,
 		"size":    len(content),
-	}, nil
+	}
+
+	if len(content) > MaxToolOutputBytes {
+		result["truncated"] = true
+		result["hint"] = "File truncated. Use search_files to find specific content, or read specific line ranges."
+	}
+
+	return result, nil
 }
 
 // ListDirTool lists directory contents

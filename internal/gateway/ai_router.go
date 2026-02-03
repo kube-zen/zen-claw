@@ -26,7 +26,8 @@ type AIRouter struct {
 	providers map[string]ai.Provider // Loaded providers
 
 	// Response caching
-	cache *cache.Cache
+	cache         *cache.Cache
+	semanticCache *SemanticCache
 
 	// Circuit breakers for provider health
 	circuits *circuit.Manager
@@ -34,6 +35,10 @@ type AIRouter struct {
 	// Cost tracking
 	usageMu sync.Mutex
 	usage   *cost.Usage
+
+	// Cost optimization
+	optimizer *CostOptimizer
+	dedup     *RequestDeduplicator
 }
 
 // NewAIRouter creates a new AI router
@@ -86,17 +91,38 @@ func NewAIRouter(cfg *config.Config) *AIRouter {
 	})
 
 	return &AIRouter{
-		config:    cfg,
-		factory:   factory,
-		providers: providersMap,
-		cache:     responseCache,
-		circuits:  circuitMgr,
-		usage:     cost.NewUsage(),
+		config:        cfg,
+		factory:       factory,
+		providers:     providersMap,
+		cache:         responseCache,
+		semanticCache: NewSemanticCache(24*time.Hour, 500),
+		circuits:      circuitMgr,
+		usage:         cost.NewUsage(),
+		optimizer:     NewCostOptimizer(),
+		dedup:         NewRequestDeduplicator(5 * time.Second),
 	}
 }
 
 // Chat sends a chat request through the router with automatic fallback
 func (r *AIRouter) Chat(ctx context.Context, req ai.ChatRequest, preferredProvider string) (*ai.ChatResponse, error) {
+	// Apply cost optimizations
+	req = r.optimizer.OptimizeRequest(req)
+
+	// Check for duplicate in-flight request
+	inflight, isDup := r.dedup.CheckDuplicate(req)
+	if isDup {
+		log.Printf("[AIRouter] Dedup HIT - waiting for in-flight request")
+		select {
+		case <-inflight.done:
+			return inflight.response, inflight.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	defer func() {
+		// Will be completed after we have response
+	}()
+
 	// Estimate context size and get context-aware provider chain
 	estimatedTokens := EstimateTokens(req.Messages)
 	providerChain := r.getProviderChainForContext(preferredProvider, estimatedTokens)
@@ -104,13 +130,24 @@ func (r *AIRouter) Chat(ctx context.Context, req ai.ChatRequest, preferredProvid
 	// Generate cache key from request
 	cacheKey := r.computeCacheKey(preferredProvider, req)
 
-	// Check cache first (skip for tool calls - they need fresh context)
+	// Check exact cache first (skip for tool calls - they need fresh context)
 	if len(req.Tools) == 0 {
 		if cached, ok := r.cache.Get(cacheKey); ok {
 			log.Printf("[AIRouter] Cache HIT - returning cached response")
-			return &ai.ChatResponse{
-				Content: cached,
-			}, nil
+			resp := &ai.ChatResponse{Content: cached}
+			r.dedup.Complete(inflight, resp, nil)
+			return resp, nil
+		}
+
+		// Check semantic cache for similar queries
+		if len(req.Messages) > 0 {
+			lastMsg := req.Messages[len(req.Messages)-1].Content
+			if cached, ok := r.semanticCache.Get(lastMsg); ok {
+				log.Printf("[AIRouter] Semantic cache HIT - returning similar response")
+				resp := &ai.ChatResponse{Content: cached}
+				r.dedup.Complete(inflight, resp, nil)
+				return resp, nil
+			}
 		}
 	}
 
@@ -157,7 +194,16 @@ func (r *AIRouter) Chat(ctx context.Context, req ai.ChatRequest, preferredProvid
 			// Cache successful response (skip tool calls)
 			if len(req.Tools) == 0 && resp.Content != "" {
 				r.cache.Set(cacheKey, resp.Content)
+
+				// Also cache semantically for similar future queries
+				if len(req.Messages) > 0 {
+					lastMsg := req.Messages[len(req.Messages)-1].Content
+					r.semanticCache.Set(lastMsg, resp.Content)
+				}
 			}
+
+			// Complete dedup
+			r.dedup.Complete(inflight, resp, nil)
 
 			return resp, nil
 		}
@@ -174,7 +220,9 @@ func (r *AIRouter) Chat(ctx context.Context, req ai.ChatRequest, preferredProvid
 		}
 	}
 
-	return nil, fmt.Errorf("all providers failed. Last error: %w", lastErr)
+	err := fmt.Errorf("all providers failed. Last error: %w", lastErr)
+	r.dedup.Complete(inflight, nil, err)
+	return nil, err
 }
 
 // callWithRetry wraps a provider call with retry logic
