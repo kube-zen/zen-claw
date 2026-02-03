@@ -1,6 +1,11 @@
 package cmd
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
 	"github.com/spf13/cobra"
 )
 
@@ -10,6 +15,8 @@ var rootCmd = &cobra.Command{
 	Long: `Zen Claw is a Go clone of OpenClaw focusing on AI interaction
 and minimal tooling. No branches, no CI overhead, just results.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Display capabilities at startup
+		displayCapabilities()
 		cmd.Help()
 	},
 }
@@ -25,4 +32,59 @@ func init() {
 	rootCmd.AddCommand(newSessionCmd())
 	rootCmd.AddCommand(newSlackCmd())
 	rootCmd.AddCommand(newToolsCmd())
+}
+
+// displayCapabilities shows the AI's capabilities at startup
+func displayCapabilities() {
+	fmt.Println("🚀 Zen Claw Capabilities")
+	fmt.Println("========================")
+	
+	// Try to load capabilities from ~/.zen/zen-claw/capabilities
+	capabilitiesDir := filepath.Join(os.Getenv("HOME"), ".zen", "zen-claw", "capabilities")
+	
+	if _, err := os.Stat(capabilitiesDir); os.IsNotExist(err) {
+		// Directory doesn't exist, skip
+		return
+	}
+	
+	// Read all markdown files in capabilities directory
+	files, err := os.ReadDir(capabilitiesDir)
+	if err != nil {
+		// Skip if we can't read the directory
+		return
+	}
+	
+	// Sort files for consistent display
+	var mdFiles []string
+	for _, file := range files {
+		if strings.HasSuffix(file.Name(), ".md") {
+			mdFiles = append(mdFiles, file.Name())
+		}
+	}
+	
+	// Display each capability file
+	for _, fileName := range mdFiles {
+		filePath := filepath.Join(capabilitiesDir, fileName)
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			continue
+		}
+		
+		// Display the content (skip the first line which is the title)
+		lines := strings.Split(string(content), "\n")
+		if len(lines) > 1 {
+			// Print the first line (title) as heading
+			fmt.Printf("\n%s\n", strings.TrimSpace(lines[0]))
+			fmt.Println(strings.Repeat("-", len(strings.TrimSpace(lines[0]))))
+			
+			// Print the rest of the content
+			for i := 1; i < len(lines); i++ {
+				if strings.TrimSpace(lines[i]) != "" {
+					fmt.Printf("%s\n", strings.TrimSpace(lines[i]))
+				}
+			}
+		}
+	}
+	
+	fmt.Println()
 }

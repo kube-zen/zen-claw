@@ -47,3 +47,11 @@ build/
 # Coverage files
 coverage.txt
 coverage.html
+# Temporary directories
+temp_dir/
+
+# Backup files
+*.backup
+*.bak
+*.tmp*
+*.original

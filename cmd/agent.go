@@ -85,6 +85,18 @@ Examples:
 	return cmd
 }
 
+// createOrLoadSession creates a new session or loads an existing one
+func createOrLoadSession(sessionID, workingDir, provider, model string) *Session {
+	// In a real implementation, this would interact with the session store
+	// For now, we just return a basic session object
+	return &Session{
+		ID:         sessionID,
+		WorkingDir: workingDir,
+		Provider:   provider,
+		Model:      model,
+	}
+}
+
 func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool, think bool) {
 	// Interactive mode if no task provided
 	if task == "" {
