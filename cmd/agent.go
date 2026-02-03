@@ -16,31 +16,7 @@ import (
 )
 
 // Global variables for thinking cursor
-// Session cleanup function
-func cleanupOldSessions() {
-    sessionsDir := "/tmp/zen-claw-sessions"
-    if _, err := os.Stat(sessionsDir); os.IsNotExist(err) {
-        return
-    }
-    
-    files, err := os.ReadDir(sessionsDir)
-    if err != nil {
-        return
-    }
-    
-    // Clean up sessions older than 7 days
-    cutoffTime := time.Now().Add(-7 * 24 * time.Hour)
-    
-    for _, file := range files {
-        if file.IsDir() {
-            fullPath := filepath.Join(sessionsDir, file.Name())
-            fileInfo, err := file.Info()
-            if err == nil && fileInfo.ModTime().Before(cutoffTime) {
-                os.RemoveAll(fullPath)
-            }
-        }
-    }
-}
+// Removed duplicate cleanupOldSessions function (duplicate with session_manager.go)
 
 // Session ID validation function
 func validateSessionID(sessionID string) string {

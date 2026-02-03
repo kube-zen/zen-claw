@@ -27,7 +27,7 @@ func NewGatewayProvider(baseURL string) *GatewayProvider {
 
 	return &GatewayProvider{
 		baseURL: strings.TrimSuffix(baseURL, "/"),
-		timeout: 30 * time.Second,
+		timeout: 60 * time.Second,
 	}
 }
 

@@ -286,7 +286,7 @@ func (a *Agent) getAIResponse(ctx context.Context, session *Session) (*ai.ChatRe
 
 	// Get response with timeout - increased for large context models
 	// Large context windows (262K+ tokens) take longer to process
-	ctx, cancel := context.WithTimeout(ctx, 300*time.Second) // 5 minutes for complex tasks
+	ctx, cancel := context.WithTimeout(ctx, 600*time.Second) // 10 minutes for complex tasks
 	defer cancel()
 
 	return a.aiCaller.Chat(ctx, req)
