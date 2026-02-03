@@ -79,6 +79,32 @@ factory:
     infrastructure:
       provider: minimax
       model: minimax-M2.1
+
+# Gateway settings
+gateway:
+  host: ""         # Listen on all interfaces (or "127.0.0.1")
+  port: 8080       # Default port
+
+# Agent execution settings
+agent:
+  max_steps: 100           # Max tool execution steps per task
+  max_subagents: 4         # Max concurrent background subagents
+  subagent_max_steps: 50   # Max steps per subagent
+
+# Consensus tuning
+consensus:
+  min_workers: 2       # Minimum workers required (default 2)
+  max_tokens: 4000     # Default max tokens per worker
+  temperature: 0.7     # Default temperature
+
+# Cost optimization
+cost_optimization:
+  max_history_turns: 50           # Hard cap on messages
+  max_history_messages: 20        # Summarize beyond this
+  keep_last_assistants: 3         # Keep last N assistant msgs intact
+  semantic_cache_enabled: true    # Enable semantic caching
+  semantic_cache_min_overlap: 3   # Min keyword overlap for cache hit
+  dedup_window_seconds: 5         # Request dedup window
 ```
 
 ## Modes of Operation

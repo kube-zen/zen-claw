@@ -11,6 +11,7 @@ import (
 
 type Config struct {
 	Gateway          GatewayConfig          `yaml:"gateway"`
+	Agent            AgentConfig            `yaml:"agent"`
 	Providers        ProvidersConfig        `yaml:"providers"`
 	Default          DefaultConfig          `yaml:"default"`
 	Workspace        WorkspaceConfig        `yaml:"workspace"`
@@ -62,10 +63,20 @@ type SessionsConfig struct {
 	DBPath      string `yaml:"db_path"`      // Path to session database (default ~/.zen/zen-claw/data/sessions.db)
 }
 
+// AgentConfig configures agent execution
+type AgentConfig struct {
+	MaxSteps           int `yaml:"max_steps"`            // Maximum tool execution steps (default 100)
+	MaxSubagents       int `yaml:"max_subagents"`        // Maximum concurrent subagents (default 4)
+	SubagentMaxSteps   int `yaml:"subagent_max_steps"`   // Max steps per subagent (default 50)
+}
+
 // ConsensusConfig configures the consensus engine
 type ConsensusConfig struct {
-	Workers []WorkerConfig `yaml:"workers"` // Worker definitions for parallel calls
-	Arbiter []string       `yaml:"arbiter"` // Arbiter preference order (first available used)
+	Workers     []WorkerConfig `yaml:"workers"`      // Worker definitions for parallel calls
+	Arbiter     []string       `yaml:"arbiter"`      // Arbiter preference order (first available used)
+	MinWorkers  int            `yaml:"min_workers"`  // Minimum workers required (default 2)
+	MaxTokens   int            `yaml:"max_tokens"`   // Default max tokens per worker (default 4000)
+	Temperature float64        `yaml:"temperature"`  // Default temperature (default 0.7)
 }
 
 // WorkerConfig defines a consensus worker
@@ -123,6 +134,11 @@ type CostOptimizationConfig struct {
 	// Tool output pruning
 	MaxToolResultTokens int                       `yaml:"max_tool_result_tokens"` // Default max tokens per tool result
 	ToolRules           map[string]ToolRuleConfig `yaml:"tool_rules"`             // Per-tool pruning rules
+
+	// Semantic cache settings
+	SemanticCacheEnabled    bool `yaml:"semantic_cache_enabled"`     // Enable semantic caching (default true)
+	SemanticCacheMinOverlap int  `yaml:"semantic_cache_min_overlap"` // Min keyword overlap (default 3)
+	DedupWindowSeconds      int  `yaml:"dedup_window_seconds"`       // Request dedup window (default 5)
 
 	// Anthropic prompt caching (when using Anthropic provider)
 	AnthropicCacheRetention string `yaml:"anthropic_cache_retention"` // "none", "short" (5m), "long" (1h)
@@ -293,6 +309,11 @@ func NewDefaultConfig() *Config {
 			Host: "",   // Listen on all interfaces
 			Port: 8080, // Default port
 		},
+		Agent: AgentConfig{
+			MaxSteps:         100, // Default max tool execution steps
+			MaxSubagents:     4,   // Default max concurrent subagents
+			SubagentMaxSteps: 50,  // Default max steps per subagent
+		},
 		Default: DefaultConfig{
 			Provider: "deepseek",
 			Model:    "deepseek-chat",
@@ -310,7 +331,10 @@ func NewDefaultConfig() *Config {
 				{Provider: "qwen", Model: "qwen3-coder-30b"},
 				{Provider: "minimax", Model: "minimax-M2.1"},
 			},
-			Arbiter: []string{"kimi", "qwen", "deepseek"},
+			Arbiter:     []string{"kimi", "qwen", "deepseek"},
+			MinWorkers:  2,      // Minimum workers required
+			MaxTokens:   4000,   // Default max tokens per worker
+			Temperature: 0.7,   // Default temperature
 		},
 		Factory: FactoryConfig{
 			Specialists: map[string]SpecialistConfig{
@@ -348,6 +372,9 @@ func NewDefaultConfig() *Config {
 			MaxHistoryMessages:      20,      // Summarize beyond 20
 			KeepLastAssistants:      3,       // Keep last 3 assistant msgs intact
 			MaxToolResultTokens:     8000,    // Default ~32KB
+			SemanticCacheEnabled:    true,    // Enable semantic caching
+			SemanticCacheMinOverlap: 3,       // Minimum 3 keyword overlap
+			DedupWindowSeconds:      5,       // 5-second dedup window
 			AnthropicCacheRetention: "short", // 5-minute cache for Anthropic
 			ToolRules: map[string]ToolRuleConfig{
 				"exec":    {MaxTokens: 4000, KeepRecent: 1, Aggressive: true},
@@ -706,4 +733,73 @@ func GetProviderContextLimit(provider string) int {
 func CanProviderHandleContext(provider string, tokenCount int) bool {
 	limit := GetProviderContextLimit(provider)
 	return tokenCount <= limit
+}
+
+// GetMaxSteps returns the configured max steps for agent execution
+func (c *Config) GetMaxSteps() int {
+	if c.Agent.MaxSteps > 0 {
+		return c.Agent.MaxSteps
+	}
+	return 100 // Default
+}
+
+// GetMaxSubagents returns the max concurrent subagents
+func (c *Config) GetMaxSubagents() int {
+	if c.Agent.MaxSubagents > 0 {
+		return c.Agent.MaxSubagents
+	}
+	return 4 // Default
+}
+
+// GetSubagentMaxSteps returns max steps per subagent
+func (c *Config) GetSubagentMaxSteps() int {
+	if c.Agent.SubagentMaxSteps > 0 {
+		return c.Agent.SubagentMaxSteps
+	}
+	return 50 // Default
+}
+
+// GetConsensusMinWorkers returns minimum required workers
+func (c *Config) GetConsensusMinWorkers() int {
+	if c.Consensus.MinWorkers > 0 {
+		return c.Consensus.MinWorkers
+	}
+	return 2 // Default
+}
+
+// GetConsensusMaxTokens returns default max tokens for consensus workers
+func (c *Config) GetConsensusMaxTokens() int {
+	if c.Consensus.MaxTokens > 0 {
+		return c.Consensus.MaxTokens
+	}
+	return 4000 // Default
+}
+
+// GetConsensusTemperature returns default temperature for consensus
+func (c *Config) GetConsensusTemperature() float64 {
+	if c.Consensus.Temperature > 0 {
+		return c.Consensus.Temperature
+	}
+	return 0.7 // Default
+}
+
+// GetSemanticCacheMinOverlap returns minimum keyword overlap for semantic cache
+func (c *Config) GetSemanticCacheMinOverlap() int {
+	if c.CostOptimization.SemanticCacheMinOverlap > 0 {
+		return c.CostOptimization.SemanticCacheMinOverlap
+	}
+	return 3 // Default
+}
+
+// GetDedupWindowSeconds returns request deduplication window
+func (c *Config) GetDedupWindowSeconds() int {
+	if c.CostOptimization.DedupWindowSeconds > 0 {
+		return c.CostOptimization.DedupWindowSeconds
+	}
+	return 5 // Default
+}
+
+// IsSemanticCacheEnabled returns whether semantic caching is enabled
+func (c *Config) IsSemanticCacheEnabled() bool {
+	return c.CostOptimization.SemanticCacheEnabled
 }

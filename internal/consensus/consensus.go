@@ -2,6 +2,9 @@
 // All workers receive the SAME prompt with the SAME role.
 // The arbiter gets the original question + all worker outputs, scores each worker,
 // and synthesizes the best ideas into a unified blueprint.
+//
+// Optionally, an LLM Judge can be used to evaluate worker responses before synthesis,
+// providing more nuanced selection based on configurable criteria.
 package consensus
 
 import (
@@ -17,6 +20,7 @@ import (
 
 	"github.com/neves/zen-claw/internal/ai"
 	"github.com/neves/zen-claw/internal/config"
+	"github.com/neves/zen-claw/internal/judge"
 	"github.com/neves/zen-claw/internal/providers"
 )
 
@@ -43,6 +47,8 @@ type ConsensusRequest struct {
 	Workers     []Worker // Optional custom workers (defaults used if empty)
 	MaxTokens   int      // Max tokens per worker response (default 4000)
 	Temperature float64  // Temperature for worker responses (default 0.7)
+	UseJudge    bool     // Use LLM judge to evaluate responses before synthesis
+	JudgeCriteria []string // Custom criteria for judge evaluation (optional)
 }
 
 // ConsensusResult holds the synthesized result
@@ -54,6 +60,7 @@ type ConsensusResult struct {
 	WorkerDuration  time.Duration  // Time for parallel worker calls
 	ArbiterDuration time.Duration  // Time for arbiter synthesis
 	Role            string         // The role used for this consensus
+	JudgeResult     *judge.Result  // Optional: LLM judge evaluation result
 }
 
 // WorkerStats tracks long-term worker performance
@@ -74,6 +81,7 @@ type Engine struct {
 	statsFile string
 	stats     map[string]*WorkerStats // provider/model -> stats
 	statsMu   sync.RWMutex
+	useJudge  bool // Whether to use LLM judge for response evaluation
 }
 
 // NewEngine creates a new consensus engine
@@ -83,9 +91,20 @@ func NewEngine(cfg *config.Config) *Engine {
 		factory:   providers.NewFactory(cfg),
 		statsFile: filepath.Join(os.TempDir(), "zen-claw-consensus-stats.json"),
 		stats:     make(map[string]*WorkerStats),
+		useJudge:  false, // Disabled by default
 	}
 	e.loadStats()
 	return e
+}
+
+// EnableJudge enables LLM judge for response evaluation
+func (e *Engine) EnableJudge(enable bool) {
+	e.useJudge = enable
+}
+
+// IsJudgeEnabled returns whether LLM judge is enabled
+func (e *Engine) IsJudgeEnabled() bool {
+	return e.useJudge
 }
 
 // DefaultWorkers returns the worker configuration from config (without roles - role is per-request)
@@ -173,11 +192,22 @@ func (e *Engine) Generate(ctx context.Context, req ConsensusRequest) (*Consensus
 		}, fmt.Errorf("only %d valid worker responses (need at least 2)", validCount)
 	}
 
+	// Optional Phase 1.5: LLM Judge evaluation
+	var judgeResult *judge.Result
+	if req.UseJudge || e.useJudge {
+		judgeResult = e.evaluateWithJudge(ctx, req, results)
+		if judgeResult != nil {
+			log.Printf("[Consensus] Judge selected %s (confidence=%.2f): %s",
+				judgeResult.Winner.Provider, judgeResult.Evaluation.Confidence,
+				truncateString(judgeResult.Evaluation.Reasoning, 100))
+		}
+	}
+
 	// Phase 2: Arbiter synthesis with CLEAN CONTEXT (no history, just the task)
 	// Arbiter gets: original question + all worker outputs
-	// Arbiter also scores each worker
+	// Arbiter also scores each worker (optionally informed by judge)
 	arbiterStart := time.Now()
-	blueprint, arbiterModel, scoredResults, err := e.synthesizeWithArbiter(ctx, req, results)
+	blueprint, arbiterModel, scoredResults, err := e.synthesizeWithArbiter(ctx, req, results, judgeResult)
 	arbiterDuration := time.Since(arbiterStart)
 
 	if err != nil {
@@ -188,6 +218,7 @@ func (e *Engine) Generate(ctx context.Context, req ConsensusRequest) (*Consensus
 			WorkerDuration:  workerDuration,
 			ArbiterDuration: arbiterDuration,
 			Role:            req.Role,
+			JudgeResult:     judgeResult,
 		}, fmt.Errorf("arbiter synthesis failed: %w", err)
 	}
 
@@ -206,7 +237,75 @@ func (e *Engine) Generate(ctx context.Context, req ConsensusRequest) (*Consensus
 		WorkerDuration:  workerDuration,
 		ArbiterDuration: arbiterDuration,
 		Role:            req.Role,
+		JudgeResult:     judgeResult,
 	}, nil
+}
+
+// evaluateWithJudge uses an LLM judge to evaluate worker responses
+func (e *Engine) evaluateWithJudge(ctx context.Context, req ConsensusRequest, results []WorkerResult) *judge.Result {
+	// Convert worker results to judge responses
+	var responses []judge.Response
+	for _, r := range results {
+		if r.Error != nil || r.Response == "" {
+			continue
+		}
+		responses = append(responses, judge.Response{
+			Provider: r.Worker.Provider,
+			Model:    r.Worker.Model,
+			Content:  r.Response,
+			Duration: r.Duration,
+		})
+	}
+
+	if len(responses) < 2 {
+		return nil
+	}
+
+	// Get judge provider (use arbiter order)
+	arbiterOrder := e.cfg.GetArbiterOrder()
+	var judgeProvider ai.Provider
+	var judgeName string
+
+	for _, name := range arbiterOrder {
+		p, err := e.factory.CreateProvider(name)
+		if err == nil {
+			judgeProvider = p
+			judgeName = name
+			break
+		}
+	}
+
+	if judgeProvider == nil {
+		log.Printf("[Consensus] No judge provider available")
+		return nil
+	}
+
+	// Create judge
+	j := judge.NewJudge(judgeProvider, judgeName, e.cfg.GetModel(judgeName))
+
+	// Run judgment
+	judgeReq := judge.Request{
+		Responses: responses,
+		Task:      req.Prompt,
+		Context:   fmt.Sprintf("Role: %s", req.Role),
+		Criteria:  req.JudgeCriteria,
+	}
+
+	result, err := j.Judge(ctx, judgeReq)
+	if err != nil {
+		log.Printf("[Consensus] Judge evaluation failed: %v", err)
+		return nil
+	}
+
+	return result
+}
+
+// truncateString truncates a string to maxLen characters
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
 }
 
 // buildWorkerPrompt constructs the prompt - same for ALL workers
@@ -344,7 +443,8 @@ func (e *Engine) callWorkersParallel(ctx context.Context, workers []Worker, prom
 
 // synthesizeWithArbiter uses an arbiter model to synthesize and score worker responses
 // CLEAN CONTEXT: arbiter gets only the original question + worker outputs, no history
-func (e *Engine) synthesizeWithArbiter(ctx context.Context, req ConsensusRequest, results []WorkerResult) (string, string, []WorkerResult, error) {
+// If judgeResult is provided, the arbiter is informed of the judge's evaluation
+func (e *Engine) synthesizeWithArbiter(ctx context.Context, req ConsensusRequest, results []WorkerResult, judgeResult *judge.Result) (string, string, []WorkerResult, error) {
 	// Choose arbiter based on config preference order
 	arbiterOrder := e.cfg.GetArbiterOrder()
 	var arbiter ai.Provider
@@ -378,13 +478,30 @@ func (e *Engine) synthesizeWithArbiter(ctx context.Context, req ConsensusRequest
 
 	// Arbiter prompt - SAME ROLE as workers, CLEAN CONTEXT
 	roleDescription := getRoleDescription(req.Role)
+	
+	// Include judge evaluation if available
+	judgeSection := ""
+	if judgeResult != nil {
+		judgeSection = fmt.Sprintf(`
+PRELIMINARY EVALUATION (from LLM Judge):
+- Recommended winner: %s (score: %.2f, confidence: %.2f)
+- Reasoning: %s
+- All scores: %v
+
+Consider this evaluation in your synthesis, but make your own independent assessment.
+
+`, judgeResult.Winner.Provider, judgeResult.Evaluation.WinnerScore,
+			judgeResult.Evaluation.Confidence, judgeResult.Evaluation.Reasoning,
+			judgeResult.Evaluation.Scores)
+	}
+
 	arbiterPrompt := fmt.Sprintf(`You are a %s acting as the lead reviewer.
 
 %s
 
 ORIGINAL TASK (this was given to all team members):
 %s
-
+%s
 TEAM RESPONSES:
 %s
 
@@ -411,7 +528,7 @@ OUTPUT FORMAT:
   ]
 }
 `+"```",
-		req.Role, roleDescription, req.Prompt, workerResponses.String(), req.Role,
+		req.Role, roleDescription, req.Prompt, judgeSection, workerResponses.String(), req.Role,
 		buildScoreTemplate(workerIDs))
 
 	log.Printf("[Consensus] Arbiter %s (role: %s) synthesizing %d responses...", arbiterName, req.Role, len(results))

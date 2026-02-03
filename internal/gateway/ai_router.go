@@ -96,11 +96,11 @@ func NewAIRouter(cfg *config.Config) *AIRouter {
 		factory:       factory,
 		providers:     providersMap,
 		cache:         responseCache,
-		semanticCache: NewSemanticCache(24*time.Hour, 500),
+		semanticCache: NewSemanticCache(24*time.Hour, 500, cfg.GetSemanticCacheMinOverlap()),
 		circuits:      circuitMgr,
 		usage:         cost.NewUsage(),
 		optimizer:     NewCostOptimizerWithConfig(&cfg.CostOptimization),
-		dedup:         NewRequestDeduplicator(5 * time.Second),
+		dedup:         NewRequestDeduplicator(time.Duration(cfg.GetDedupWindowSeconds()) * time.Second),
 	}
 }
 

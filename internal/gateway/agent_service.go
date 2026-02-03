@@ -236,11 +236,10 @@ func (s *AgentService) ChatWithProgress(ctx context.Context, req ChatRequest, pr
 		})
 	}
 
-	// Set max steps - default 100 for complex multi-step tasks
-	// Similar to Cursor which can handle large refactoring tasks
+	// Set max steps from config (default 100 for complex multi-step tasks)
 	maxSteps := req.MaxSteps
 	if maxSteps == 0 {
-		maxSteps = 100
+		maxSteps = s.config.GetMaxSteps()
 	}
 
 	// Create AI caller for gateway

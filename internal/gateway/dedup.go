@@ -104,10 +104,11 @@ func (d *RequestDeduplicator) cleanup() {
 
 // SemanticCache caches responses for semantically similar queries
 type SemanticCache struct {
-	mu      sync.RWMutex
-	entries map[string]*semanticEntry
-	ttl     time.Duration
-	maxSize int
+	mu         sync.RWMutex
+	entries    map[string]*semanticEntry
+	ttl        time.Duration
+	maxSize    int
+	minOverlap int // Minimum keyword overlap for cache hit
 }
 
 type semanticEntry struct {
@@ -118,17 +119,21 @@ type semanticEntry struct {
 }
 
 // NewSemanticCache creates a semantic similarity cache
-func NewSemanticCache(ttl time.Duration, maxSize int) *SemanticCache {
+func NewSemanticCache(ttl time.Duration, maxSize int, minOverlap int) *SemanticCache {
 	if ttl == 0 {
 		ttl = 24 * time.Hour
 	}
 	if maxSize == 0 {
 		maxSize = 500
 	}
+	if minOverlap == 0 {
+		minOverlap = 3
+	}
 	c := &SemanticCache{
-		entries: make(map[string]*semanticEntry),
-		ttl:     ttl,
-		maxSize: maxSize,
+		entries:    make(map[string]*semanticEntry),
+		ttl:        ttl,
+		maxSize:    maxSize,
+		minOverlap: minOverlap,
 	}
 	go c.cleanup()
 	return c
@@ -153,7 +158,7 @@ func (c *SemanticCache) Get(query string) (string, bool) {
 			continue
 		}
 		score := keywordOverlap(keywords, entry.keywords)
-		if score > bestScore && score >= 3 { // Minimum 3 keyword overlap
+		if score > bestScore && score >= c.minOverlap {
 			bestScore = score
 			bestMatch = entry
 		}
