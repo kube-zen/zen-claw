@@ -290,8 +290,8 @@ func NewDefaultConfig() *Config {
 
 	return &Config{
 		Gateway: GatewayConfig{
-			Host: "",    // Listen on all interfaces
-			Port: 8080,  // Default port
+			Host: "",   // Listen on all interfaces
+			Port: 8080, // Default port
 		},
 		Default: DefaultConfig{
 			Provider: "deepseek",

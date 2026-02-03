@@ -48,6 +48,7 @@ func init() {
 	rootCmd.AddCommand(newSessionsCmd())
 	rootCmd.AddCommand(newSessionCmd())
 	rootCmd.AddCommand(newPluginsCmd())
+	rootCmd.AddCommand(newIndexCmd())
 	rootCmd.AddCommand(newSlackCmd())
 	rootCmd.AddCommand(newToolsCmd())
 }

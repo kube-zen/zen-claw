@@ -109,6 +109,10 @@ func NewAgentService(cfg *config.Config) *AgentService {
 		agent.NewProcessTool(""), // Background process management
 		// Multi-file patches
 		agent.NewApplyPatchTool(""), // Apply structured patches
+		// RAG tools (requires index: zen-claw index build)
+		agent.NewCodeSearchTool(""),  // Search indexed codebase
+		agent.NewFindSymbolTool(""),  // Find symbol definitions
+		agent.NewContextTool(""),     // Get relevant context
 	}
 
 	// Load plugins from ~/.zen/zen-claw/plugins/

@@ -298,6 +298,83 @@ pkill -f "zen-claw gateway"
 
 ---
 
+## Plugins
+
+Extend zen-claw with custom tools using scripts (bash, python, etc.).
+
+### Create a Plugin
+
+```bash
+# Create from template
+zen-claw plugins init my-tool --lang bash
+
+# Or python
+zen-claw plugins init my-tool --lang python
+```
+
+This creates `~/.zen/zen-claw/plugins/my-tool/` with:
+- `plugin.yaml` - Manifest defining name, description, parameters
+- `run.sh` or `run.py` - Script that receives JSON via stdin, returns JSON via stdout
+
+### Plugin Manifest
+
+```yaml
+name: my-tool
+version: 1.0.0
+description: What my tool does
+command: ./run.sh
+timeout: 30s
+parameters:
+  type: object
+  properties:
+    input:
+      type: string
+      description: Input parameter
+  required: [input]
+```
+
+### Commands
+
+```bash
+zen-claw plugins list    # List installed plugins
+zen-claw plugins info    # Show plugin system info
+```
+
+---
+
+## RAG (Codebase Indexing)
+
+Index your codebase for intelligent code search.
+
+### Index a Project
+
+```bash
+# Index current directory
+zen-claw index build .
+
+# Index specific project
+zen-claw index build ~/projects/my-app
+```
+
+### Search
+
+```bash
+# Search for code
+zen-claw index search "authentication"
+
+# View stats
+zen-claw index stats
+```
+
+### RAG Tools (Available to AI)
+
+When indexed, the AI can use:
+- `code_search` - Search by function names, classes, keywords
+- `find_symbol` - Find where a symbol is defined
+- `get_context` - Get relevant code context for a topic
+
+---
+
 ## Roadmap
 
 ### Completed ✅
@@ -306,7 +383,7 @@ pkill -f "zen-claw gateway"
 - [x] Real-time SSE/WebSocket streaming
 - [x] SQLite session persistence
 - [x] Session CLI management
-- [x] Tool system (20+ tools)
+- [x] Tool system (24+ tools)
 - [x] Interactive CLI with readline
 - [x] Provider fallback routing
 - [x] Circuit breaker
@@ -323,12 +400,12 @@ pkill -f "zen-claw gateway"
 - [x] **Factory mode** (coordinator + specialists)
 - [x] **Fabric mode** (interactive multi-worker)
 - [x] Guardrails (cost, time, file limits)
+- [x] **Plugin system** (custom tools via scripts)
+- [x] **RAG support** (codebase indexing and search)
 
-### Next
+### Future
 
 - [ ] Web UI
-- [ ] Plugin system
-- [ ] RAG support
 
 ---
 
