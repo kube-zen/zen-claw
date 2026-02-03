@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"errors"
-
 	"bufio"
 	"fmt"
 	"io"
@@ -15,23 +13,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Global variables for thinking cursor
-// Removed duplicate cleanupOldSessions function (duplicate with session_manager.go)
-
-// Session ID validation function
-func validateSessionID(sessionID string) string {
-    if sessionID == "" {
-        return fmt.Sprintf("sess-%d", time.Now().Unix())
-    }
-    if len(sessionID) < 5 {
-        return fmt.Sprintf("sess-%d", time.Now().Unix())
-    }
-    return sessionID
-}
-var thinkingCursorActive = false
-var thinkingCursorTicker *time.Ticker
-var thinkingCursorStop chan bool
-
 func newAgentCmd() *cobra.Command {
 	var model string
 	var provider string
@@ -40,7 +21,6 @@ func newAgentCmd() *cobra.Command {
 	var showProgress bool
 	var maxSteps int
 	var verbose bool
-	var think bool
 
 	cmd := &cobra.Command{
 		Use:   "agent",
@@ -83,38 +63,25 @@ Examples:
 			if len(args) > 0 {
 				task = args[0]
 			}
-			runAgent(task, model, provider, workingDir, sessionID, showProgress, maxSteps, verbose, think)
+			runAgent(task, model, provider, workingDir, sessionID, showProgress, maxSteps, verbose)
 		},
 	}
 
 	cmd.Flags().StringVar(&model, "model", "", "AI model (e.g., deepseek-chat)")
-	cmd.Flags().StringVar(&provider, "provider", "", "AI provider (deepseek, openai, glm, minimax, qwen)")
+	cmd.Flags().StringVar(&provider, "provider", "", "AI provider (deepseek, openai, glm, minimax, qwen, kimi)")
 	cmd.Flags().StringVar(&workingDir, "working-dir", ".", "Working directory for tools")
 	cmd.Flags().StringVar(&sessionID, "session-id", "", "Session ID (for continuing sessions)")
 	cmd.Flags().BoolVar(&showProgress, "progress", false, "Show progress in console (CLI only)")
-	cmd.Flags().IntVar(&maxSteps, "max-steps", 50, "Maximum tool execution steps")
+	cmd.Flags().IntVar(&maxSteps, "max-steps", 100, "Maximum tool execution steps (default 100 for complex tasks)")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Enable verbose output for debugging")
-	cmd.Flags().BoolVar(&think, "think", false, "Show AI thinking process with cursor animation")
 
 	return cmd
 }
 
-// createOrLoadSession creates a new session or loads an existing one
-func createOrLoadSession(sessionID, workingDir, provider, model string) *Session {
-	// In a real implementation, this would interact with the session store
-	// For now, we just return a basic session object
-	return &Session{
-		ID:         sessionID,
-		WorkingDir: workingDir,
-		Provider:   provider,
-		Model:      model,
-	}
-}
-
-func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool, think bool) {
+func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool) {
 	// Interactive mode if no task provided
 	if task == "" {
-		runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID, showProgress, maxSteps, verbose, think)
+		runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID, showProgress, maxSteps, verbose)
 		return
 	}
 
@@ -176,15 +143,14 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 			modelName = "minimax-M2.1"
 		case "openai":
 			modelName = "gpt-4o-mini"
+		case "kimi":
+			modelName = "kimi-k2-5"
 		default:
 			modelName = "deepseek-chat"
 		}
 	}
 
 	fmt.Printf("Provider: %s, Model: %s\n", providerName, modelName)
-	if showProgress {
-		fmt.Println()
-	}
 
 	// Prepare request
 	req := ChatRequest{
@@ -196,32 +162,15 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 		MaxSteps:   maxSteps,
 	}
 
-	if showProgress {
-		fmt.Println("🤖 Sending request to gateway...")
-		fmt.Println()
-		fmt.Printf("📡 Gateway: http://localhost:8080\n")
-		if sessionID != "" {
-			fmt.Printf("   Session ID: %s\n", sessionID)
-		}
-		fmt.Printf("   Task: %s\n", task)
-		fmt.Println()
-	}
+	fmt.Println()
 
-	// Show thinking cursor if enabled
-	if think {
-		go showThinkingCursor(task)
-	}
-
-	// Send request to gateway
-	resp, err := client.Send(req)
+	// Use streaming for better UX - shows progress in real-time
+	resp, err := client.SendWithProgress(req, func(event ProgressEvent) {
+		displayProgressEvent(event)
+	})
 	if err != nil {
 		fmt.Printf("\n❌ Gateway request failed: %v\n", err)
 		os.Exit(1)
-	}
-
-	// Stop thinking cursor if it was running
-	if think {
-		stopThinkingCursor()
 	}
 
 	// Check for error in response
@@ -232,7 +181,7 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 
 	// Print result
 	fmt.Println("\n" + strings.Repeat("═", 80))
-	fmt.Println("🎯 RESULT (via Gateway)")
+	fmt.Println("🎯 RESULT")
 	fmt.Println(strings.Repeat("═", 80))
 	fmt.Println(resp.Result)
 	fmt.Println(strings.Repeat("═", 80))
@@ -267,17 +216,23 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 }
 
 // runInteractiveMode runs the agent in interactive mode
-func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool, think bool) {
-	fmt.Println("🚀 Zen Agent - Interactive Mode")
+func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool) {
+	fmt.Println("🚀 Zen Agent - Interactive Mode (Multi-Session)")
 	fmt.Println("═" + strings.Repeat("═", 78))
 	fmt.Println("Entering interactive mode. Type your tasks, one per line.")
-	fmt.Println("Special commands:")
+	fmt.Println("Session commands:")
+	fmt.Println("  /sessions           - List all sessions with status")
+	fmt.Println("  /new [name]         - Create new session (backgrounds current)")
+	fmt.Println("  /switch <id>        - Switch to another session")
+	fmt.Println("  /background         - Move current session to background")
+	fmt.Println("  /close [id]         - Close/delete a session")
+	fmt.Println("Provider commands:")
 	fmt.Println("  /providers          - List available AI providers")
 	fmt.Println("  /provider <name>    - Switch to a specific provider")
 	fmt.Println("  /models            - List models for current provider")
 	fmt.Println("  /model <name>      - Switch model within current provider")
+	fmt.Println("Other commands:")
 	fmt.Println("  /context-limit [n] - Set context limit (default 50, 0=unlimited)")
-	fmt.Println("  /qwen-large-context [on|off|disable] - Enable/disable Qwen 256k context (default off)")
 	fmt.Println("  /exit, /quit       - Exit interactive mode")
 	fmt.Println("  /help              - Show this help")
 	fmt.Println("═" + strings.Repeat("═", 78))
@@ -325,6 +280,8 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			modelName = "minimax-M2.1"
 		case "openai":
 			modelName = "gpt-4o-mini"
+		case "kimi":
+			modelName = "kimi-k2-5"
 		default:
 			modelName = "deepseek-chat"
 		}
@@ -336,7 +293,7 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 	// Setup readline for improved interactive mode (history, editing, etc.)
 	historyFile := filepath.Join(os.Getenv("HOME"), ".zen-claw-history")
 	rl, err := readline.NewEx(&readline.Config{
-		Prompt:            " > ",
+		Prompt:            "\n> ",
 		HistoryFile:       historyFile,
 		HistoryLimit:      1000,
 		AutoComplete:      nil, // Can add custom completer later
@@ -376,20 +333,130 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			fmt.Println("Exiting interactive mode...")
 			return
 		case input == "/help":
-			fmt.Println("Special commands:")
+			fmt.Println("Session commands:")
+			fmt.Println("  /sessions           - List all sessions with status")
+			fmt.Println("  /new [name]         - Create new session (backgrounds current)")
+			fmt.Println("  /switch <id>        - Switch to another session")
+			fmt.Println("  /background         - Move current session to background")
+			fmt.Println("  /close [id]         - Close/delete a session")
+			fmt.Println("Provider commands:")
 			fmt.Println("  /providers          - List available AI providers")
 			fmt.Println("  /provider <name>    - Switch to a specific provider")
 			fmt.Println("  /models            - List models for current provider")
 			fmt.Println("  /model <name>      - Switch model within current provider")
+			fmt.Println("Other commands:")
 			fmt.Println("  /context-limit [n] - Set context limit (default 50, 0=unlimited)")
-			fmt.Println("  /qwen-large-context [on|off|disable] - Enable/disable Qwen 256k context (default off)")
 			fmt.Println("  /exit, /quit       - Exit interactive mode")
 			fmt.Println("  /help              - Show this help")
 			continue
+
+		// Session management commands
+		case input == "/sessions":
+			sessions, err := client.ListSessions()
+			if err != nil {
+				fmt.Printf("❌ Error: %v\n", err)
+				continue
+			}
+			fmt.Printf("\n📋 Sessions (%d/%d active):\n", sessions.ActiveCount, sessions.MaxSessions)
+			fmt.Println(strings.Repeat("─", 60))
+			if len(sessions.Sessions) == 0 {
+				fmt.Println("  No sessions found")
+			}
+			for _, s := range sessions.Sessions {
+				stateIcon := "⏸️"
+				if s.State == "active" {
+					stateIcon = "▶️"
+				} else if s.State == "idle" {
+					stateIcon = "💤"
+				}
+				current := ""
+				if s.ID == sessionID {
+					current = " ← current"
+				}
+				fmt.Printf("  %s %s (%d msgs, %s)%s\n", stateIcon, s.ID, s.MessageCount, s.State, current)
+			}
+			fmt.Println(strings.Repeat("─", 60))
+			continue
+
+		case strings.HasPrefix(input, "/new"):
+			// Background current session if it exists
+			if sessionID != "" {
+				if err := client.BackgroundSession(sessionID); err != nil {
+					fmt.Printf("⚠️ Warning: Could not background current session: %v\n", err)
+				} else {
+					fmt.Printf("⏸️ Backgrounded session: %s\n", sessionID)
+				}
+			}
+			// Create new session
+			parts := strings.Fields(input)
+			if len(parts) > 1 {
+				sessionID = parts[1]
+			} else {
+				sessionID = fmt.Sprintf("session_%d", time.Now().Unix())
+			}
+			fmt.Printf("▶️ New session: %s\n", sessionID)
+			continue
+
+		case strings.HasPrefix(input, "/switch "):
+			newSessionID := strings.TrimSpace(strings.TrimPrefix(input, "/switch "))
+			if newSessionID == "" {
+				fmt.Println("Usage: /switch <session-id>")
+				continue
+			}
+			// Background current session
+			if sessionID != "" && sessionID != newSessionID {
+				if err := client.BackgroundSession(sessionID); err != nil {
+					fmt.Printf("⚠️ Warning: Could not background current session: %v\n", err)
+				}
+			}
+			// Activate new session
+			if err := client.ActivateSession(newSessionID, "cli"); err != nil {
+				fmt.Printf("❌ Error: %v\n", err)
+				continue
+			}
+			sessionID = newSessionID
+			fmt.Printf("▶️ Switched to session: %s\n", sessionID)
+			continue
+
+		case input == "/background":
+			if sessionID == "" {
+				fmt.Println("No current session to background")
+				continue
+			}
+			if err := client.BackgroundSession(sessionID); err != nil {
+				fmt.Printf("❌ Error: %v\n", err)
+				continue
+			}
+			fmt.Printf("⏸️ Session %s moved to background\n", sessionID)
+			fmt.Println("Use /switch <id> to switch to another session, or /new to create one")
+			continue
+
+		case strings.HasPrefix(input, "/close"):
+			parts := strings.Fields(input)
+			targetSession := sessionID
+			if len(parts) > 1 {
+				targetSession = parts[1]
+			}
+			if targetSession == "" {
+				fmt.Println("No session to close. Usage: /close [session-id]")
+				continue
+			}
+			if err := client.DeleteSession(targetSession); err != nil {
+				fmt.Printf("❌ Error: %v\n", err)
+				continue
+			}
+			fmt.Printf("🗑️ Closed session: %s\n", targetSession)
+			if targetSession == sessionID {
+				sessionID = ""
+				fmt.Println("Create a new session with /new or switch with /switch <id>")
+			}
+			continue
+
 		case input == "/providers" || input == "/provider":
 			fmt.Println("Available providers:")
 			fmt.Println("  - deepseek  (default)")
-			fmt.Println("  - qwen")
+			fmt.Println("  - qwen      (256K context)")
+			fmt.Println("  - kimi      (256K context, $0.10/M)")
 			fmt.Println("  - glm")
 			fmt.Println("  - minimax")
 			fmt.Println("  - openai")
@@ -406,7 +473,7 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			}
 
 			// Validate provider
-			validProviders := []string{"deepseek", "qwen", "glm", "minimax", "openai"}
+			validProviders := []string{"deepseek", "qwen", "glm", "minimax", "openai", "kimi"}
 			isValid := false
 			for _, p := range validProviders {
 				if p == newProvider {
@@ -434,6 +501,8 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 				modelName = "minimax-M2.1"
 			case "openai":
 				modelName = "gpt-4o-mini"
+			case "kimi":
+				modelName = "kimi-k2-5"
 			}
 
 			fmt.Printf("Switched to provider: %s (model: %s)\n", providerName, modelName)
@@ -464,6 +533,12 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 				fmt.Println("  - gpt-4o")
 				fmt.Println("  - gpt-4-turbo")
 				fmt.Println("  - gpt-3.5-turbo")
+			case "kimi":
+				fmt.Println("  - kimi-k2-5 (default, 256K context)")
+				fmt.Println("  - kimi-k2-5-long-context (2M context)")
+				fmt.Println("  - moonshot-v1-8k")
+				fmt.Println("  - moonshot-v1-32k")
+				fmt.Println("  - moonshot-v1-128k")
 			default:
 				fmt.Println("  (Unknown provider)")
 			}
@@ -540,8 +615,10 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			MaxSteps:   maxSteps,
 		}
 
-		// Send request to gateway
-		resp, err := client.Send(req)
+		// Send request to gateway with streaming progress
+		resp, err := client.SendWithProgress(req, func(event ProgressEvent) {
+			displayProgressEvent(event)
+		})
 		if err != nil {
 			fmt.Printf("❌ Error: %v\n", err)
 			continue
@@ -600,7 +677,9 @@ func runBasicInteractiveMode(client *GatewayClient, sessionID, workingDir, provi
 			MaxSteps:   maxSteps,
 		}
 
-		resp, err := client.Send(req)
+		resp, err := client.SendWithProgress(req, func(event ProgressEvent) {
+			displayProgressEvent(event)
+		})
 		if err != nil {
 			fmt.Printf("❌ Error: %v\n", err)
 			continue
@@ -636,6 +715,8 @@ func inferProviderFromModel(modelName string) string {
 		return "minimax"
 	} else if strings.Contains(modelName, "gpt") {
 		return "openai"
+	} else if strings.Contains(modelName, "kimi") || strings.Contains(modelName, "moonshot") {
+		return "kimi"
 	}
 
 	// Could not infer provider
@@ -658,91 +739,43 @@ func isModelCompatibleWithProvider(modelName, provider string) bool {
 		return strings.Contains(modelName, "minimax") || strings.Contains(modelName, "abab")
 	case "openai":
 		return strings.Contains(modelName, "gpt")
+	case "kimi":
+		return strings.Contains(modelName, "kimi") || strings.Contains(modelName, "moonshot")
 	}
 
 	// Unknown provider, assume compatible
 	return true
 }
 
-// showThinkingCursor displays an animated cursor while processing
-func showThinkingCursor(task string) {
-	thinkingCursorActive = true
-	thinkingCursorStop = make(chan bool, 1)
-
-	cursor := []string{"|", "/", "-", "\\"}
-	cursorIndex := 0
-
-	ticker := time.NewTicker(150 * time.Millisecond)
-	defer ticker.Stop()
-
-	fmt.Printf("\n🧠 Thinking: %s ", task)
-
-	for {
-		select {
-		case <-ticker.C:
-			if !thinkingCursorActive {
-				return
-			}
-			// Move to next cursor character
-			cursorIndex = (cursorIndex + 1) % len(cursor)
-			// Clear the line and print new cursor
-			fmt.Printf("\r🧠 Thinking: %s %s", task, cursor[cursorIndex])
-		case <-thinkingCursorStop:
-			fmt.Printf("\r🧠 Thinking: %s ✅\n", task)
-			return
+// displayProgressEvent prints a progress event to the console with nice formatting
+func displayProgressEvent(event ProgressEvent) {
+	switch event.Type {
+	case "start":
+		fmt.Printf("🚀 %s\n", event.Message)
+	case "step":
+		fmt.Printf("\n📍 %s\n", event.Message)
+	case "thinking":
+		fmt.Printf("   💭 %s\n", event.Message)
+	case "ai_response":
+		// Truncate long AI responses in progress display
+		msg := event.Message
+		if len(msg) > 200 {
+			msg = msg[:197] + "..."
+		}
+		fmt.Printf("   🤖 %s\n", msg)
+	case "tool_call":
+		fmt.Printf("   %s\n", event.Message)
+	case "tool_result":
+		fmt.Printf("   %s\n", event.Message)
+	case "complete":
+		fmt.Printf("\n✅ %s\n", event.Message)
+	case "error":
+		fmt.Printf("\n❌ %s\n", event.Message)
+	case "done":
+		// Final result will be displayed separately
+	default:
+		if event.Message != "" {
+			fmt.Printf("   %s\n", event.Message)
 		}
 	}
-}
-
-// stopThinkingCursor stops the thinking cursor
-func stopThinkingCursor() {
-	if thinkingCursorActive {
-		thinkingCursorActive = false
-		thinkingCursorStop <- true
-	}
-}
-
-// Enhanced tool error handling
-func handleToolError(toolName string, err error) error {
-    errorMsg := fmt.Sprintf("Tool '%s' failed: %v", toolName, err)
-    if strings.Contains(err.Error(), "permission denied") {
-        errorMsg += "\n💡 Try running with appropriate permissions"
-    } else if strings.Contains(err.Error(), "no such file") {
-        errorMsg += "\n💡 Check that the file/path exists"
-    }
-    return errors.New(errorMsg)
-}
-
-// Tool input validation
-func validateToolArgs(toolName string, args []string) error {
-    switch toolName {
-    case "read":
-        if len(args) != 1 {
-            return fmt.Errorf("read requires exactly one argument (file path)")
-        }
-    case "write":
-        if len(args) < 2 {
-            return fmt.Errorf("write requires at least two arguments (file path and content)")
-        }
-    case "exec":
-        if len(args) == 0 {
-            return fmt.Errorf("exec requires at least one command argument")
-        }
-    }
-    return nil
-}
-
-// Enhanced tool help display
-func showToolHelp() {
-    fmt.Println("Available tools:")
-    fmt.Println("  read     - Read file contents")
-    fmt.Println("  write    - Create/overwrite files")
-    fmt.Println("  edit     - Edit files precisely")
-    fmt.Println("  exec     - Run shell commands")
-    fmt.Println("  search   - Find files by name/content")
-    fmt.Println("  git      - Git operations")
-    fmt.Println("  env      - Environment variables")
-    fmt.Println("  tools    - List all tools")
-    fmt.Println("  session  - Session management")
-    fmt.Println("\nUse 'toolname --help' for detailed usage")
 }

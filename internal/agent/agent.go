@@ -24,17 +24,28 @@ type ToolResult struct {
 	IsError    bool
 }
 
+// ProgressCallback is called during agent execution to report progress
+type ProgressCallback func(event ProgressEvent)
+
+// ProgressEvent represents a progress event during agent execution
+type ProgressEvent struct {
+	Type    string      `json:"type"`    // "step", "thinking", "tool_call", "tool_result", "complete", "error"
+	Step    int         `json:"step"`    // Current step number
+	Message string      `json:"message"` // Human-readable message
+	Data    interface{} `json:"data,omitempty"`
+}
+
 // Agent is a minimal agent focused only on tool execution
 // Uses AICaller interface for AI communication
 type Agent struct {
-	aiCaller     AICaller
-	tools        map[string]Tool
-	maxSteps     int
-	currentModel string
-	events       chan AgentEvent // Channel for progress events
+	aiCaller         AICaller
+	tools            map[string]Tool
+	maxSteps         int
+	currentModel     string
+	progressCallback ProgressCallback
 }
 
-// AgentEvent represents a progress event during agent execution
+// AgentEvent represents a progress event during agent execution (deprecated, use ProgressEvent)
 type AgentEvent struct {
 	Type    string      `json:"type"`
 	Message string      `json:"message"`
@@ -54,8 +65,24 @@ func NewAgent(aiCaller AICaller, tools []Tool, maxSteps int) *Agent {
 		aiCaller:     aiCaller,
 		tools:        toolMap,
 		maxSteps:     maxSteps,
-		currentModel: "deepseek-chat",            // Default model
-		events:       make(chan AgentEvent, 100), // Buffered channel for events
+		currentModel: "deepseek-chat", // Default model
+	}
+}
+
+// SetProgressCallback sets a callback for progress events
+func (a *Agent) SetProgressCallback(cb ProgressCallback) {
+	a.progressCallback = cb
+}
+
+// emitProgress sends a progress event if callback is set
+func (a *Agent) emitProgress(eventType string, step int, message string, data interface{}) {
+	if a.progressCallback != nil {
+		a.progressCallback(ProgressEvent{
+			Type:    eventType,
+			Step:    step,
+			Message: message,
+			Data:    data,
+		})
 	}
 }
 
@@ -175,11 +202,15 @@ func (a *Agent) Run(ctx context.Context, session *Session, userInput string) (*S
 
 	// Execute agent loop
 	for step := 0; step < a.maxSteps; step++ {
-		log.Printf("[Agent] Step %d", step+1)
+		stepNum := step + 1
+		log.Printf("[Agent] Step %d", stepNum)
+		a.emitProgress("step", stepNum, fmt.Sprintf("Step %d/%d: Thinking...", stepNum, a.maxSteps), nil)
 
 		// Get AI response
+		a.emitProgress("thinking", stepNum, "Waiting for AI response...", nil)
 		resp, err := a.getAIResponse(ctx, session)
 		if err != nil {
+			a.emitProgress("error", stepNum, fmt.Sprintf("AI error: %v", err), nil)
 			return session, "", fmt.Errorf("AI response failed: %w", err)
 		}
 
@@ -191,6 +222,9 @@ func (a *Agent) Run(ctx context.Context, session *Session, userInput string) (*S
 			session.AddMessage(ai.Message{
 				Role:    "assistant",
 				Content: resp.Content,
+			})
+			a.emitProgress("complete", stepNum, "Task completed", map[string]interface{}{
+				"total_steps": stepNum,
 			})
 			return session, resp.Content, nil
 		}
@@ -204,11 +238,17 @@ func (a *Agent) Run(ctx context.Context, session *Session, userInput string) (*S
 		// Clean content - remove XML tool call tags for cleaner display
 		cleanedContent := a.cleanToolCallTags(resp.Content)
 
+		// Emit AI response if there's content
+		if cleanedContent != "" {
+			a.emitProgress("ai_response", stepNum, cleanedContent, nil)
+		}
+
 		log.Printf("[Agent] Executing %d tool calls (%d from text parsing)", len(allToolCalls), len(toolCalls))
 
-		// Execute all tool calls
-		toolResults, err := a.executeToolCalls(ctx, allToolCalls)
+		// Execute all tool calls with progress
+		toolResults, err := a.executeToolCallsWithProgress(ctx, allToolCalls, stepNum)
 		if err != nil {
+			a.emitProgress("error", stepNum, fmt.Sprintf("Tool error: %v", err), nil)
 			return session, "", fmt.Errorf("tool execution failed: %w", err)
 		}
 
@@ -261,7 +301,7 @@ func (a *Agent) Run(ctx context.Context, session *Session, userInput string) (*S
 		}
 	}
 
-	return session, "", fmt.Errorf("exceeded maximum steps (%d). Complex tasks may need more steps. Try increasing with --max-steps flag.", a.maxSteps)
+	return session, "", fmt.Errorf("exceeded maximum steps (%d). For complex tasks: 1) Try --max-steps 200 for large refactoring, 2) Break task into smaller pieces, 3) Use /context-limit to reduce context if AI is exploring too much", a.maxSteps)
 }
 
 // getAIResponse gets a response from the AI caller with session messages
@@ -273,37 +313,63 @@ func (a *Agent) getAIResponse(ctx context.Context, session *Session) (*ai.ChatRe
 	// Convert tools to AI tool definitions
 	toolDefs := a.getToolDefinitions()
 
-	// Create chat request
+	// Create chat request with generous max tokens for complex responses
 	req := ai.ChatRequest{
 		Model:                   a.currentModel, // Use current model
 		Messages:                messages,
 		Tools:                   toolDefs,
 		Temperature:             0.7,
-		MaxTokens:               2000,
+		MaxTokens:               4000, // Increased for complex analysis tasks
 		ContextLimit:            session.GetContextLimit(),
 		QwenLargeContextEnabled: session.GetQwenLargeContextEnabled(),
 	}
 
-	// Get response with timeout - increased for large context models
-	// Large context windows (262K+ tokens) take longer to process
-	ctx, cancel := context.WithTimeout(ctx, 600*time.Second) // 10 minutes for complex tasks
+	// Per-step timeout: Each AI call gets its own generous timeout
+	// This is per-step, not per-task, so large tasks with many steps work fine.
+	// Similar to Cursor's approach where each step has time to complete.
+	// 5 minutes per step is generous even for large context models.
+	stepCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	return a.aiCaller.Chat(ctx, req)
+	resp, err := a.aiCaller.Chat(stepCtx, req)
+	if err != nil {
+		// Check if it's a context deadline exceeded error
+		if ctx.Err() == context.DeadlineExceeded || stepCtx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("AI response timed out after 5 minutes (this step). Large models with long context may need more time. Try reducing context with /context-limit command")
+		}
+		return nil, err
+	}
+	return resp, nil
 }
 
-// executeToolCalls executes all tool calls and returns results
+// executeToolCalls executes all tool calls and returns results (without progress)
 func (a *Agent) executeToolCalls(ctx context.Context, toolCalls []ai.ToolCall) ([]ToolResult, error) {
+	return a.executeToolCallsWithProgress(ctx, toolCalls, 0)
+}
+
+// executeToolCallsWithProgress executes all tool calls with progress events
+func (a *Agent) executeToolCallsWithProgress(ctx context.Context, toolCalls []ai.ToolCall, step int) ([]ToolResult, error) {
 	var results []ToolResult
 
-	for _, call := range toolCalls {
+	for i, call := range toolCalls {
 		log.Printf("[Agent] Executing tool: %s", call.Name)
+
+		// Build argument summary for display
+		argSummary := a.summarizeArgs(call.Args)
+		a.emitProgress("tool_call", step, fmt.Sprintf("🔧 %s(%s)", call.Name, argSummary), map[string]interface{}{
+			"tool":      call.Name,
+			"args":      call.Args,
+			"tool_num":  i + 1,
+			"tool_total": len(toolCalls),
+		})
 
 		tool, exists := a.tools[call.Name]
 		if !exists {
+			errMsg := fmt.Sprintf("Tool '%s' not found", call.Name)
+			a.emitProgress("tool_result", step, fmt.Sprintf("❌ %s", errMsg), nil)
 			results = append(results, ToolResult{
 				ToolCallID: call.ID,
-				Content:    fmt.Sprintf("Error: Tool '%s' not found", call.Name),
+				Content:    fmt.Sprintf("Error: %s", errMsg),
 				IsError:    true,
 			})
 			continue
@@ -312,8 +378,10 @@ func (a *Agent) executeToolCalls(ctx context.Context, toolCalls []ai.ToolCall) (
 		// Execute tool
 		result, err := tool.Execute(ctx, call.Args)
 		if err != nil {
+			errMsg := fmt.Sprintf("Error executing %s: %v", call.Name, err)
+			a.emitProgress("tool_result", step, fmt.Sprintf("❌ %s", errMsg), nil)
 			errorResult := map[string]interface{}{
-				"error": fmt.Sprintf("Error executing %s: %v", call.Name, err),
+				"error": errMsg,
 			}
 			errorJSON, _ := json.Marshal(errorResult)
 			results = append(results, ToolResult{
@@ -342,10 +410,74 @@ func (a *Agent) executeToolCalls(ctx context.Context, toolCalls []ai.ToolCall) (
 			})
 		}
 
+		// Emit success with truncated result
+		resultSummary := a.summarizeResult(string(resultJSON))
+		a.emitProgress("tool_result", step, fmt.Sprintf("✓ %s → %s", call.Name, resultSummary), nil)
+
 		log.Printf("[Agent] Tool %s completed", call.Name)
 	}
 
 	return results, nil
+}
+
+// summarizeArgs creates a short summary of tool arguments for display
+func (a *Agent) summarizeArgs(args map[string]interface{}) string {
+	if len(args) == 0 {
+		return ""
+	}
+	
+	var parts []string
+	for k, v := range args {
+		str := fmt.Sprintf("%v", v)
+		if len(str) > 40 {
+			str = str[:37] + "..."
+		}
+		parts = append(parts, fmt.Sprintf("%s=%q", k, str))
+	}
+	
+	result := strings.Join(parts, ", ")
+	if len(result) > 80 {
+		result = result[:77] + "..."
+	}
+	return result
+}
+
+// summarizeResult creates a short summary of tool result for display
+func (a *Agent) summarizeResult(result string) string {
+	// Try to extract meaningful info from JSON
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(result), &data); err == nil {
+		// For exec results, show exit code and truncated output
+		if exitCode, ok := data["exit_code"]; ok {
+			if output, ok := data["output"].(string); ok {
+				lines := strings.Split(strings.TrimSpace(output), "\n")
+				if len(lines) > 0 {
+					firstLine := lines[0]
+					if len(firstLine) > 50 {
+						firstLine = firstLine[:47] + "..."
+					}
+					return fmt.Sprintf("exit=%v: %s", exitCode, firstLine)
+				}
+				return fmt.Sprintf("exit=%v", exitCode)
+			}
+			return fmt.Sprintf("exit=%v", exitCode)
+		}
+		// For file reads, show file size or content preview
+		if content, ok := data["content"].(string); ok {
+			lines := len(strings.Split(content, "\n"))
+			return fmt.Sprintf("%d lines", lines)
+		}
+		// For directory listing, show count
+		if entries, ok := data["entries"].([]interface{}); ok {
+			return fmt.Sprintf("%d items", len(entries))
+		}
+	}
+	
+	// Fallback: truncate raw result
+	if len(result) > 60 {
+		return result[:57] + "..."
+	}
+	return result
 }
 
 // getToolDefinitions converts tools to AI tool definitions

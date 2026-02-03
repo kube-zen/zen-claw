@@ -36,6 +36,7 @@ func NewServer(cfg *config.Config) *Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", srv.healthHandler)
 	mux.HandleFunc("/chat", srv.chatHandler)
+	mux.HandleFunc("/chat/stream", srv.streamChatHandler) // SSE streaming endpoint
 	mux.HandleFunc("/sessions", srv.sessionsHandler)
 	mux.HandleFunc("/sessions/", srv.sessionHandler)
 	mux.HandleFunc("/", srv.defaultHandler)
@@ -191,43 +192,62 @@ func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// sessionsHandler lists all sessions
+// sessionsHandler lists all sessions with state info
 func (s *Server) sessionsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Get sessions from agent service
-	sessions := s.agentService.ListSessions()
+	// Get sessions with state from agent service
+	sessions := s.agentService.ListSessionsWithState()
 
 	// Convert to response format
 	sessionList := make([]map[string]interface{}, 0, len(sessions))
-	for _, stats := range sessions {
+	for _, entry := range sessions {
 		sessionList = append(sessionList, map[string]interface{}{
-			"id":                 stats.SessionID,
-			"created_at":         stats.CreatedAt.Format(time.RFC3339),
-			"updated_at":         stats.UpdatedAt.Format(time.RFC3339),
-			"message_count":      stats.MessageCount,
-			"user_messages":      stats.UserMessages,
-			"assistant_messages": stats.AssistantMessages,
-			"tool_messages":      stats.ToolMessages,
-			"working_dir":        stats.WorkingDir,
+			"id":                 entry.Stats.SessionID,
+			"created_at":         entry.Stats.CreatedAt.Format(time.RFC3339),
+			"updated_at":         entry.Stats.UpdatedAt.Format(time.RFC3339),
+			"message_count":      entry.Stats.MessageCount,
+			"user_messages":      entry.Stats.UserMessages,
+			"assistant_messages": entry.Stats.AssistantMessages,
+			"tool_messages":      entry.Stats.ToolMessages,
+			"working_dir":        entry.Stats.WorkingDir,
+			"state":              string(entry.State),
+			"client_id":          entry.ClientID,
+			"last_used":          entry.LastUsed.Format(time.RFC3339),
 		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"sessions": sessionList,
-		"count":    len(sessionList),
+		"sessions":     sessionList,
+		"count":        len(sessionList),
+		"max_sessions": s.agentService.GetMaxSessions(),
+		"active_count": s.agentService.GetActiveSessionCount(),
 	})
 }
 
 // sessionHandler handles individual session operations
 func (s *Server) sessionHandler(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.URL.Path[len("/sessions/"):]
-	if sessionID == "" {
+	path := r.URL.Path[len("/sessions/"):]
+	if path == "" {
 		http.Error(w, "Session ID required", http.StatusBadRequest)
+		return
+	}
+
+	// Parse path for actions: /sessions/{id}/background, /sessions/{id}/activate
+	parts := splitPath(path)
+	sessionID := parts[0]
+	action := ""
+	if len(parts) > 1 {
+		action = parts[1]
+	}
+
+	// Handle session actions
+	if action != "" {
+		s.handleSessionAction(w, r, sessionID, action)
 		return
 	}
 
@@ -269,15 +289,178 @@ func (s *Server) sessionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleSessionAction handles session actions (background, activate)
+func (s *Server) handleSessionAction(w http.ResponseWriter, r *http.Request, sessionID, action string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	switch action {
+	case "background":
+		if err := s.agentService.BackgroundSession(sessionID); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":     sessionID,
+			"state":  "background",
+			"status": "ok",
+		})
+
+	case "activate":
+		// Get client ID from request body (optional)
+		var req struct {
+			ClientID string `json:"client_id"`
+		}
+		json.NewDecoder(r.Body).Decode(&req) // Ignore error, clientID is optional
+
+		if err := s.agentService.ActivateSession(sessionID, req.ClientID); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":     sessionID,
+			"state":  "active",
+			"status": "ok",
+		})
+
+	default:
+		http.Error(w, "Unknown action: "+action, http.StatusBadRequest)
+	}
+}
+
+// splitPath splits a URL path by /
+func splitPath(path string) []string {
+	var parts []string
+	for _, p := range splitString(path, '/') {
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	return parts
+}
+
+// splitString splits a string by a separator
+func splitString(s string, sep rune) []string {
+	var result []string
+	current := ""
+	for _, r := range s {
+		if r == sep {
+			if current != "" {
+				result = append(result, current)
+				current = ""
+			}
+		} else {
+			current += string(r)
+		}
+	}
+	if current != "" {
+		result = append(result, current)
+	}
+	return result
+}
+
+// streamChatHandler handles streaming chat requests via SSE
+func (s *Server) streamChatHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse request
+	var req ChatRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.UserInput == "" {
+		http.Error(w, "user_input is required", http.StatusBadRequest)
+		return
+	}
+
+	// Set default working directory if not provided
+	if req.WorkingDir == "" {
+		req.WorkingDir = "."
+	}
+
+	// Set up SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// Get flusher for streaming
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	// Create event channel
+	eventChan := make(chan map[string]interface{}, 100)
+
+	// Process with agent service (with progress callback)
+	ctx := r.Context()
+	go func() {
+		defer close(eventChan)
+		resp, err := s.agentService.ChatWithProgress(ctx, req, func(event map[string]interface{}) {
+			select {
+			case eventChan <- event:
+			case <-ctx.Done():
+				return
+			}
+		})
+		if err != nil {
+			eventChan <- map[string]interface{}{
+				"type":    "error",
+				"message": err.Error(),
+			}
+			return
+		}
+		// Send final result
+		eventChan <- map[string]interface{}{
+			"type":         "done",
+			"session_id":   resp.SessionID,
+			"result":       resp.Result,
+			"session_info": resp.SessionInfo,
+		}
+	}()
+
+	// Stream events to client
+	for event := range eventChan {
+		data, err := json.Marshal(event)
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+
+		// Check if client disconnected
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+	}
+}
+
 // defaultHandler shows available endpoints
 func (s *Server) defaultHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 	fmt.Fprintf(w, "Zen Claw Gateway v0.1.0\n")
 	fmt.Fprintf(w, "Available AI providers: %v\n", s.agentService.GetAvailableProviders())
+	fmt.Fprintf(w, "Max sessions: %d, Active: %d\n", s.agentService.GetMaxSessions(), s.agentService.GetActiveSessionCount())
 	fmt.Fprintf(w, "\nEndpoints:\n")
-	fmt.Fprintf(w, "  GET  /health           - Health check\n")
-	fmt.Fprintf(w, "  POST /chat             - Chat with AI (JSON)\n")
-	fmt.Fprintf(w, "  GET  /sessions         - List sessions\n")
-	fmt.Fprintf(w, "  GET  /sessions/{id}    - Get session\n")
-	fmt.Fprintf(w, "  DELETE /sessions/{id}  - Delete session\n")
+	fmt.Fprintf(w, "  GET  /health                    - Health check\n")
+	fmt.Fprintf(w, "  POST /chat                      - Chat with AI (JSON)\n")
+	fmt.Fprintf(w, "  POST /chat/stream               - Chat with AI (SSE streaming)\n")
+	fmt.Fprintf(w, "  GET  /sessions                  - List sessions with state\n")
+	fmt.Fprintf(w, "  GET  /sessions/{id}             - Get session details\n")
+	fmt.Fprintf(w, "  DELETE /sessions/{id}           - Delete session\n")
+	fmt.Fprintf(w, "  POST /sessions/{id}/background  - Move session to background\n")
+	fmt.Fprintf(w, "  POST /sessions/{id}/activate    - Activate a session\n")
 }

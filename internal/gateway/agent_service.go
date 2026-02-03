@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -47,7 +48,8 @@ func NewAgentService(cfg *config.Config) *AgentService {
 
 	// Create session store with persistence
 	sessionStore, err := NewSessionStore(&SessionStoreConfig{
-		DataDir: "/tmp/zen-claw-sessions",
+		DataDir:     "/tmp/zen-claw-sessions",
+		MaxSessions: cfg.GetMaxSessions(),
 	})
 	if err != nil {
 		// Fallback to in-memory if persistence fails
@@ -90,8 +92,16 @@ type ChatResponse struct {
 	Error       string             `json:"error,omitempty"`
 }
 
-// Chat handles a chat request using the agent service
+// ProgressCallback is a function called for each progress event
+type ProgressCallback func(event map[string]interface{})
+
+// Chat handles a chat request using the agent service (no progress)
 func (s *AgentService) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+	return s.ChatWithProgress(ctx, req, nil)
+}
+
+// ChatWithProgress handles a chat request with progress callback for streaming
+func (s *AgentService) ChatWithProgress(ctx context.Context, req ChatRequest, progressCb ProgressCallback) (*ChatResponse, error) {
 	// Get or create session
 	session := s.getOrCreateSession(req.SessionID)
 
@@ -119,10 +129,21 @@ func (s *AgentService) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 		modelName = s.config.GetModel(providerName)
 	}
 
-	// Set max steps
+	// Emit initial progress
+	if progressCb != nil {
+		progressCb(map[string]interface{}{
+			"type":     "start",
+			"provider": providerName,
+			"model":    modelName,
+			"message":  fmt.Sprintf("Starting with %s/%s", providerName, modelName),
+		})
+	}
+
+	// Set max steps - default 100 for complex multi-step tasks
+	// Similar to Cursor which can handle large refactoring tasks
 	maxSteps := req.MaxSteps
 	if maxSteps == 0 {
-		maxSteps = 50
+		maxSteps = 100
 	}
 
 	// Create AI caller for gateway
@@ -132,12 +153,46 @@ func (s *AgentService) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 		model:    modelName,
 	}
 
-	// Create agent
+	// Create agent with progress callback
 	agentInstance := agent.NewAgent(aiCaller, s.tools, maxSteps)
 
-	// Run agent
+	// Set progress callback on agent if provided
+	if progressCb != nil {
+		agentInstance.SetProgressCallback(func(event agent.ProgressEvent) {
+			progressCb(map[string]interface{}{
+				"type":    event.Type,
+				"step":    event.Step,
+				"message": event.Message,
+				"data":    event.Data,
+			})
+		})
+	}
+
+	// IMPORTANT: Use a detached context for agent execution
+	// The HTTP request context has a shorter timeout (5 min from client)
+	// but complex tasks may need 30+ minutes to complete.
+	// We create a new context with a generous timeout for large tasks.
+	// This is similar to how Cursor handles large tasks - they run in background
+	// and are not tied to the HTTP request lifecycle.
+	agentCtx, agentCancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer agentCancel()
+
+	// Also monitor HTTP context for client disconnection (graceful abort)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			// HTTP client disconnected - but we let the current step finish
+			log.Printf("[AgentService] HTTP context cancelled, agent will complete current step")
+		case <-done:
+			// Agent finished normally
+		}
+	}()
+	defer close(done)
+
+	// Run agent with detached context
 	startTime := time.Now()
-	updatedSession, result, err := agentInstance.Run(ctx, session, req.UserInput)
+	updatedSession, result, err := agentInstance.Run(agentCtx, session, req.UserInput)
 	duration := time.Since(startTime)
 
 	if err != nil {
@@ -289,12 +344,76 @@ You have a large context window (262K+ tokens), so you can maintain long convers
 	return session
 }
 
+// ListSessionsWithState returns all sessions with their state
+func (s *AgentService) ListSessionsWithState() []SessionListEntry {
+	if s.sessionStore != nil {
+		return s.sessionStore.ListSessionsWithState()
+	}
+
+	// Fallback to in-memory (no state tracking)
+	s.fallbackMu.RLock()
+	defer s.fallbackMu.RUnlock()
+
+	var entries []SessionListEntry
+	for _, session := range s.fallbackSessions {
+		entries = append(entries, SessionListEntry{
+			Stats:    session.GetStats(),
+			State:    SessionStateActive,
+			LastUsed: time.Now(),
+		})
+	}
+	return entries
+}
+
+// BackgroundSession moves a session to background state
+func (s *AgentService) BackgroundSession(sessionID string) error {
+	if s.sessionStore != nil {
+		return s.sessionStore.BackgroundSession(sessionID)
+	}
+	return nil // No state tracking in fallback
+}
+
+// ActivateSession activates a session for a client
+func (s *AgentService) ActivateSession(sessionID, clientID string) error {
+	if s.sessionStore != nil {
+		return s.sessionStore.ActivateSession(sessionID, clientID)
+	}
+	return nil // No state tracking in fallback
+}
+
+// CanCreateSession checks if a new session can be created
+func (s *AgentService) CanCreateSession() bool {
+	if s.sessionStore != nil {
+		return s.sessionStore.CanCreateSession()
+	}
+	return true // No limit in fallback
+}
+
+// GetMaxSessions returns the max sessions limit
+func (s *AgentService) GetMaxSessions() int {
+	if s.sessionStore != nil {
+		return s.sessionStore.GetMaxSessions()
+	}
+	return 0 // Unlimited in fallback
+}
+
+// GetActiveSessionCount returns the count of active sessions
+func (s *AgentService) GetActiveSessionCount() int {
+	if s.sessionStore != nil {
+		return s.sessionStore.GetActiveSessionCount()
+	}
+
+	s.fallbackMu.RLock()
+	defer s.fallbackMu.RUnlock()
+	return len(s.fallbackSessions)
+}
+
 // GetAvailableProviders returns available AI providers
 func (s *AgentService) GetAvailableProviders() []string {
 	// Check which providers have API keys (including environment variables)
 	var available []string
 
-	providers := []string{"deepseek", "glm", "minimax", "openai", "qwen"}
+	providers := []string{"deepseek", "glm", "minimax", "openai", "qwen", "kimi"}
 
 	for _, provider := range providers {
 		if s.config.GetAPIKey(provider) != "" {
@@ -320,6 +439,8 @@ func (s *AgentService) inferProviderFromModel(modelName string) string {
 		return "minimax"
 	} else if strings.Contains(modelName, "gpt") {
 		return "openai"
+	} else if strings.Contains(modelName, "kimi") || strings.Contains(modelName, "moonshot") {
+		return "kimi"
 	}
 
 	// Default to empty (will use default provider)

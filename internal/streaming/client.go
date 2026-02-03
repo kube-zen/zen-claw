@@ -32,7 +32,8 @@ func NewStreamClient(baseURL string) *StreamClient {
 	return &StreamClient{
 		baseURL: baseURL,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			// Streaming sessions can be long-lived for complex tasks
+			Timeout: 45 * time.Minute,
 		},
 		logger: logging.NewLogger("stream-client"),
 	}

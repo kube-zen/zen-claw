@@ -13,6 +13,11 @@ type Config struct {
 	Providers ProvidersConfig `yaml:"providers"`
 	Default   DefaultConfig   `yaml:"default"`
 	Workspace WorkspaceConfig `yaml:"workspace"`
+	Sessions  SessionsConfig  `yaml:"sessions"`
+}
+
+type SessionsConfig struct {
+	MaxSessions int `yaml:"max_sessions"` // Maximum concurrent sessions (default 5)
 }
 
 type ProvidersConfig struct {
@@ -116,7 +121,18 @@ func NewDefaultConfig() *Config {
 		Workspace: WorkspaceConfig{
 			Path: workspace,
 		},
+		Sessions: SessionsConfig{
+			MaxSessions: 5, // Default max concurrent sessions
+		},
 	}
+}
+
+// GetMaxSessions returns the max sessions limit (defaults to 5)
+func (c *Config) GetMaxSessions() int {
+	if c.Sessions.MaxSessions <= 0 {
+		return 5
+	}
+	return c.Sessions.MaxSessions
 }
 
 // GetAPIKey returns the API key for a provider from config or environment
@@ -190,7 +206,7 @@ func (c *Config) GetModel(provider string) string {
 		if c.Providers.Kimi != nil && c.Providers.Kimi.Model != "" {
 			return c.Providers.Kimi.Model
 		}
-		return "moonshot-v1-8k" // Default Kimi model
+		return "kimi-k2-5" // Kimi K2.5: 256K context, $0.10/M input, excellent for Go/K8s
 	default:
 		return c.Default.Model
 	}

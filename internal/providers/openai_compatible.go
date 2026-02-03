@@ -38,6 +38,9 @@ func NewOpenAICompatibleProvider(name string, config ProviderConfig) (*OpenAICom
 		case "qwen":
 			// Qwen-specific base URL
 			config.BaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+		case "kimi":
+			// Moonshot AI (Kimi) - OpenAI compatible
+			config.BaseURL = "https://api.moonshot.cn/v1"
 		default:
 			// Use OpenAI default if not specified
 			config.BaseURL = "https://api.openai.com/v1"
@@ -58,6 +61,9 @@ func NewOpenAICompatibleProvider(name string, config ProviderConfig) (*OpenAICom
 		case "qwen":
 			// Default Qwen model optimized for coding with large context
 			config.Model = "qwen3-coder-30b"
+		case "kimi":
+			// Kimi K2.5 - 256K context, excellent for Go/K8s, $0.10/M input
+			config.Model = "kimi-k2-5"
 		default:
 			config.Model = "gpt-4o-mini"
 		}
