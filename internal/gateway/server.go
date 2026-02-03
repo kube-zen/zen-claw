@@ -34,14 +34,14 @@ type Server struct {
 
 // Metrics tracks server metrics
 type Metrics struct {
-	RequestsTotal   int64
-	RequestsChat    int64
-	RequestsStream  int64
-	RequestsWS      int64
-	Errors4xx       int64
-	Errors5xx       int64
-	RateLimitHits   int64
-	StartTime       time.Time
+	RequestsTotal  int64
+	RequestsChat   int64
+	RequestsStream int64
+	RequestsWS     int64
+	Errors4xx      int64
+	Errors5xx      int64
+	RateLimitHits  int64
+	StartTime      time.Time
 }
 
 // NewServer creates a new gateway server
