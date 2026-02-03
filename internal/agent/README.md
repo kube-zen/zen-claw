@@ -1,10 +1,13 @@
 # zen-agent - Go Agent Library
 
-Provides:
+Core agent library used by zen-claw's multiple operation modes.
+
+## Features
+
 - Tool execution loop with conversation continuation
 - Session management (SQLite persistence)
-- Multiple AI provider support with circuit breaker
-- Extensible tool system + MCP integration
+- 6 AI providers with circuit breaker and fallback
+- 20+ tools + MCP integration
 
 ## Architecture
 
@@ -22,6 +25,13 @@ Agent (core loop)
 ├── Providers (DeepSeek, OpenAI, GLM, Minimax, Qwen, Kimi)
 └── Circuit Breaker (auto-disable unhealthy providers)
 ```
+
+## Used By
+
+- **Agent Mode**: Single AI with tools (main interface)
+- **Consensus Mode**: Multi-AI → arbiter synthesis
+- **Factory Mode**: Coordinator + specialists for multi-phase projects
+- **Fabric Mode**: Interactive multi-worker sessions
 
 ## Usage
 

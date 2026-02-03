@@ -11,33 +11,6 @@ A Go-based AI agent system with multi-provider support, real-time progress strea
 
 ## Features
 
-### Real-Time Progress Streaming
-See exactly what the AI is doing as it works (via SSE or WebSocket):
-```
-🚀 Starting with deepseek/deepseek-chat
-
-📍 Step 1/100: Thinking...
-   💭 Waiting for AI response...
-   🤖 I'll analyze the codebase structure first.
-   🔧 list_dir(path=".")
-   ✓ list_dir → 34 items
-
-📍 Step 2/100: Thinking...
-   💭 Waiting for AI response...
-   🤖 Now let me read the main configuration...
-   🔧 read_file(path="go.mod")
-   ✓ read_file → 79 lines
-
-✅ Task completed
-```
-
-### WebSocket Support
-Bidirectional communication for real-time interaction:
-```bash
-# Use WebSocket instead of SSE
-./zen-claw agent --ws "analyze this codebase"
-```
-
 ### Multi-Provider AI Support
 Six AI providers with automatic fallback and circuit breaker:
 
@@ -49,6 +22,9 @@ Six AI providers with automatic fallback and circuit breaker:
 | **GLM** | glm-4.7 | 128K | Chinese/English |
 | **Minimax** | minimax-M2.1 | 128K | Good balance |
 | **OpenAI** | gpt-4o-mini | 128K | Fallback |
+
+### Real-Time Progress Streaming
+See exactly what the AI is doing as it works (via SSE or WebSocket).
 
 ### Powerful Tool System (20+ tools)
 - **File ops**: read_file, write_file, edit_file, append_file, list_dir, search_files
@@ -62,7 +38,6 @@ Six AI providers with automatic fallback and circuit breaker:
 ### Session Management
 - **SQLite persistence** at `~/.zen/zen-claw/data/sessions.db`
 - ACID-compliant, crash-safe (WAL mode)
-- Max 5 concurrent sessions (configurable)
 - CLI management: `zen-claw sessions list/info/clean`
 
 ## Quick Start
@@ -76,9 +51,91 @@ go build -o zen-claw .
 
 # Interactive mode (recommended)
 ./zen-claw agent
+```
 
-# Or run single task
+## Modes of Operation
+
+### 1. Agent Mode (Single AI)
+Standard single-AI agent with tool execution - the primary interface.
+
+```bash
+# Interactive
+./zen-claw agent
+
+# Single task
 ./zen-claw agent "analyze this project"
+
+# Named session
+./zen-claw agent --session my-project "set up database"
+```
+
+### 2. Consensus Mode (Multi-AI → Arbiter)
+Multiple AI workers tackle the SAME prompt with the SAME role, then an arbiter synthesizes the best ideas into a unified blueprint.
+
+```bash
+# Security architecture review
+zen-claw consensus --role security_architect "Design zero-trust auth for microservices"
+
+# API design
+zen-claw consensus --role api_designer "REST API for user management with RBAC"
+
+# Custom role
+zen-claw consensus --role "kubernetes_operator_expert" "Design CRD for database management"
+
+# View worker performance stats
+zen-claw consensus --stats
+```
+
+**Available roles**: `security_architect`, `software_architect`, `api_designer`, `database_architect`, `devops_engineer`, `frontend_architect`, or any custom role.
+
+### 3. Factory Mode (Coordinator + Specialists)
+A coordinator AI manages specialist workers (Go, TypeScript, Infrastructure) to execute multi-phase projects with guardrails.
+
+```bash
+# Start factory with blueprint
+zen-claw factory start --blueprint blueprint.json
+
+# Check status
+zen-claw factory status --project my-project
+
+# Resume paused factory
+zen-claw factory resume --project my-project
+```
+
+**Blueprint example** (`blueprint.json`):
+```json
+{
+  "project": "zen-platform-v3",
+  "phases": [
+    {
+      "name": "core_types",
+      "task": "Define shared Go structs",
+      "domain": "go",
+      "outputs": ["zen-sdk/go/types.go"]
+    },
+    {
+      "name": "api",
+      "task": "Implement HTTP handlers",
+      "domain": "go",
+      "depends_on": ["core_types"]
+    }
+  ]
+}
+```
+
+### 4. Fabric Mode (Interactive Multi-Worker)
+Interactive session with multiple specialized workers and a coordinator.
+
+```bash
+zen-claw fabric
+
+# Commands in fabric:
+/coordinator deepseek             # Set coordinator
+/worker add go_expert qwen go_developer
+/worker add ts_expert minimax typescript_developer
+/worker list
+/profile save fullstack           # Save configuration
+/profile load fullstack           # Load later
 ```
 
 ## Configuration
@@ -108,27 +165,44 @@ default:
 
 sessions:
   max_sessions: 5
-  # db_path: ~/.zen/zen-claw/data/sessions.db  # Custom path (optional)
+
+# Consensus mode configuration
+consensus:
+  workers:
+    - provider: deepseek
+      model: deepseek-chat
+    - provider: qwen
+      model: qwen3-coder-30b
+    - provider: minimax
+      model: minimax-M2.1
+  arbiter: [kimi, qwen, deepseek]  # Preference order
+
+# Factory mode specialists
+factory:
+  specialists:
+    coordinator:
+      provider: kimi
+      model: kimi-k2-5
+    go:
+      provider: deepseek
+      model: deepseek-chat
+    typescript:
+      provider: qwen
+      model: qwen3-coder-30b
+    infrastructure:
+      provider: minimax
+      model: minimax-M2.1
+  guardrails:
+    max_phase_duration_mins: 10
+    max_total_duration_mins: 240
+    max_cost_per_phase: 0.50
+    max_cost_total: 5.00
 
 preferences:
   fallback_order: [deepseek, kimi, glm, minimax, qwen, openai]
-
-# MCP Servers (optional)
-# mcp:
-#   servers:
-#     - name: myserver
-#       command: /path/to/mcp-server
-#       args: ["--flag"]
 ```
 
-Or use environment variables:
-```bash
-export DEEPSEEK_API_KEY="sk-..."
-export KIMI_API_KEY="sk-..."
-export QWEN_API_KEY="sk-..."
-```
-
-## Interactive Commands
+## Interactive Commands (Agent Mode)
 
 | Command | Description |
 |---------|-------------|
@@ -136,16 +210,12 @@ export QWEN_API_KEY="sk-..."
 | `/sessions` | List saved sessions |
 | `/sessions info` | Show storage info (path, size) |
 | `/sessions clean` | Clean sessions (`--all` or `--older 7d`) |
-| `/sessions delete <n>` | Delete specific session |
 | `/load <name>` | Load a saved session |
-| `/clear` | Fresh context (like Cursor Cmd+N) |
-| `/providers` | List all AI providers |
+| `/clear` | Fresh context |
 | `/provider <name>` | Switch provider |
-| `/models` | Show models for current provider |
 | `/model <name>` | Switch model |
 | `/think [level]` | Set reasoning depth (off/low/medium/high) |
 | `/stats` | Show usage and cache statistics |
-| `/prefs` | View/edit AI routing preferences |
 | `/exit` | Exit |
 
 ## CLI Commands
@@ -154,23 +224,27 @@ export QWEN_API_KEY="sk-..."
 # Agent (main interface)
 zen-claw agent                    # Interactive mode
 zen-claw agent "task"             # Single task
-zen-claw agent --session my-proj  # Named session (persisted)
-zen-claw agent --provider kimi    # Specific provider
-zen-claw agent --max-steps 200    # Complex tasks
+
+# Consensus (multi-AI synthesis)
+zen-claw consensus --role <role> "prompt"
+zen-claw consensus --stats
+
+# Factory (multi-phase projects)
+zen-claw factory start --blueprint file.json
+zen-claw factory status --project name
+zen-claw factory resume --project name
+
+# Fabric (interactive multi-worker)
+zen-claw fabric
 
 # Session management
-zen-claw sessions list            # List all sessions
-zen-claw sessions info            # Storage info
-zen-claw sessions clean --all     # Delete all sessions
-zen-claw sessions clean --older 7d # Delete old sessions
+zen-claw sessions list
+zen-claw sessions info
+zen-claw sessions clean --all
 
 # Gateway
-zen-claw gateway start            # Start server
-zen-claw gateway stop             # Stop server
-
-# MCP (Model Context Protocol)
-zen-claw mcp list                 # Show MCP server examples
-zen-claw mcp connect <n> -- cmd   # Connect to MCP server
+zen-claw gateway start
+zen-claw gateway stop
 ```
 
 ## Architecture
@@ -194,41 +268,16 @@ zen-claw mcp connect <n> -- cmd   # Connect to MCP server
               └───────────┘                                 └───────────┘
 ```
 
-**Gateway Server** (`:8080`)
-- REST API + SSE streaming + WebSocket
-- SQLite session persistence (`~/.zen/zen-claw/data/sessions.db`)
-- AI provider routing with fallback and circuit breaker
-- MCP server integration
-
-**CLI Client**
-- Real-time progress streaming
-- Interactive mode with readline
-- Session management commands
-
 ## API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/health` | Health check |
-| POST | `/chat` | Send chat request (blocking) |
-| POST | `/chat/stream` | Chat with SSE progress streaming |
-| GET | `/ws` | WebSocket (bidirectional) |
-| GET | `/sessions` | List all sessions |
-| GET | `/sessions/{id}` | Get session details |
-| DELETE | `/sessions/{id}` | Delete session |
-| GET | `/stats` | Usage, cache, circuit breaker stats |
-| GET | `/preferences` | Get AI routing preferences |
-
-See [API.md](API.md) for detailed documentation.
-
-## Timeout Configuration
-
-| Component | Timeout | Purpose |
-|-----------|---------|---------|
-| HTTP Client | 45 min | Total request timeout |
-| Agent Context | 30 min | Agent execution limit |
-| Per-Step AI Call | 5 min | Individual AI call |
-| Max Steps | 100 | Tool execution limit |
+| POST | `/chat` | Blocking chat |
+| POST | `/chat/stream` | SSE streaming chat |
+| GET | `/ws` | WebSocket |
+| GET | `/sessions` | List sessions |
+| GET | `/stats` | Usage, cache, circuit stats |
 
 ## Troubleshooting
 
@@ -236,7 +285,7 @@ See [API.md](API.md) for detailed documentation.
 # Check gateway health
 curl http://localhost:8080/health
 
-# Check stats (cache, circuits, MCP)
+# Check stats
 curl http://localhost:8080/stats
 
 # View sessions
@@ -247,8 +296,6 @@ pkill -f "zen-claw gateway"
 ./zen-claw gateway start &
 ```
 
-See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed solutions.
-
 ---
 
 ## Roadmap
@@ -256,42 +303,32 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed solutions.
 ### Completed ✅
 
 - [x] Multi-provider AI support (6 providers)
-- [x] Real-time SSE progress streaming
-- [x] WebSocket support with cancel
-- [x] Session persistence (SQLite, ACID-compliant)
-- [x] Session CLI management (`zen-claw sessions list/info/clean`)
-- [x] Tool system (21 tools: file, git, web, process, patch, subagent)
+- [x] Real-time SSE/WebSocket streaming
+- [x] SQLite session persistence
+- [x] Session CLI management
+- [x] Tool system (20+ tools)
 - [x] Interactive CLI with readline
 - [x] Provider fallback routing
-- [x] Circuit breaker (auto-disable unhealthy providers)
-- [x] Response caching (30-50% cost savings)
-- [x] Retry/backoff for failed AI calls
-- [x] Token usage tracking (`/stats`)
-- [x] Git tools (status, diff, add, commit, push, log)
-- [x] Diff preview (preview_write/preview_edit)
-- [x] Parallel tool execution (2-5x speedup for read-only)
-- [x] Streaming responses (provider-level)
-- [x] MCP protocol support (external tool servers)
-- [x] Web tools (search, fetch)
-- [x] Thinking levels (`/think off/low/medium/high`)
-- [x] Consensus mode (3 AIs → arbiter)
-- [x] Factory mode (Coordinator + specialists)
+- [x] Circuit breaker
+- [x] Response caching
+- [x] Retry/backoff
+- [x] Token usage tracking
+- [x] Git tools
+- [x] Diff preview
+- [x] Parallel tool execution
+- [x] MCP protocol support
+- [x] Web tools
+- [x] Thinking levels
+- [x] **Consensus mode** (multi-AI → arbiter synthesis)
+- [x] **Factory mode** (coordinator + specialists)
+- [x] **Fabric mode** (interactive multi-worker)
 - [x] Guardrails (cost, time, file limits)
-- [x] Subagents (parallel background runs)
-- [x] Smart context routing (size-based tier selection)
-- [x] Cost optimizations (tool pruning, history limits, memory flush, dedup)
 
 ### Next
 
-- [ ] **Web UI** - Browser-based interface
-- [ ] **Plugin system** - Custom tool packages
-- [ ] **RAG support** - Vector search for large codebases
-
-### Ideas
-
-1. Undo support - Rollback file modifications
-2. Cost estimation - Predict cost before execution
-3. Smart context - Auto-include relevant files
+- [ ] Web UI
+- [ ] Plugin system
+- [ ] RAG support
 
 ---
 
@@ -299,7 +336,7 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed solutions.
 
 - [GETTING_STARTED.md](GETTING_STARTED.md) - Quick start guide
 - [API.md](API.md) - Gateway API documentation
-- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Common issues and solutions
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Common issues
 
 ## License
 
