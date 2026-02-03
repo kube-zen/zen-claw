@@ -2,11 +2,13 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chzyer/readline"
@@ -16,32 +18,44 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// SpecializedWorker represents a worker with a specific role/domain
+type SpecializedWorker struct {
+	Name     string `json:"name"`     // e.g., "go_expert", "ts_expert"
+	Provider string `json:"provider"` // e.g., "qwen", "minimax"
+	Role     string `json:"role"`     // e.g., "go_developer", "typescript_developer"
+}
+
+// FabricProfile represents a saved fabric configuration
+type FabricProfile struct {
+	Name        string              `json:"name"`
+	Coordinator string              `json:"coordinator"`
+	Workers     []SpecializedWorker `json:"workers"`
+	Description string              `json:"description,omitempty"`
+}
+
 func newFabricCmd() *cobra.Command {
-	var coordinator string
-	var worker string
-	var role string
-	var workingDir string
+	var profile string
 	var verbose bool
 
 	cmd := &cobra.Command{
 		Use:   "fabric [task]",
-		Short: "Coordinator + Worker mode for delegated tasks",
-		Long: `Run a task with a coordinator AI that delegates to a worker AI.
+		Short: "Multi-worker fabric with coordinator",
+		Long: `Run tasks with a coordinator AI that delegates to specialized workers.
 
 Interactive mode (no task argument):
-  Enter a fabric session where you can configure coordinator/worker dynamically
-  and run multiple tasks with shared context.
+  Enter a fabric session with multiple workers and shared context.
 
-One-shot mode (with task argument):
-  Run a single task and exit.
+Features:
+  - Multiple workers with different specializations (Go, TypeScript, etc.)
+  - Parallel execution for independent subtasks
+  - Profiles to save/load configurations
 
 Examples:
-  # Interactive mode - enter fabric session
+  # Interactive mode
   zen-claw fabric
 
-  # One-shot: DeepSeek coordinates Qwen for security analysis
-  zen-claw fabric --coordinator deepseek --worker qwen --role security_architect \
-    "Analyze zen-claw codebase for security vulnerabilities"`,
+  # Load a saved profile
+  zen-claw fabric --profile fullstack`,
 		Args: cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			task := ""
@@ -49,303 +63,67 @@ Examples:
 				task = args[0]
 			}
 
-			// If no task provided, enter interactive mode
 			if task == "" {
-				// Check stdin for piped input
-				stat, _ := os.Stdin.Stat()
-				if (stat.Mode() & os.ModeCharDevice) == 0 {
-					data, err := os.ReadFile("/dev/stdin")
-					if err == nil && len(strings.TrimSpace(string(data))) > 0 {
-						task = string(data)
-					}
-				}
-			}
-
-			if task == "" {
-				// Interactive mode
-				runFabricInteractive(coordinator, worker, role, workingDir, verbose)
+				runFabricInteractive(profile, verbose)
 			} else {
-				// One-shot mode
-				runFabric(task, coordinator, worker, role, workingDir, verbose)
+				fmt.Println("For one-shot tasks, use interactive mode: zen-claw fabric")
 			}
 		},
 	}
 
-	cmd.Flags().StringVar(&coordinator, "coordinator", "deepseek", "Coordinator AI provider (plans and reviews)")
-	cmd.Flags().StringVar(&worker, "worker", "qwen", "Worker AI provider (executes the task)")
-	cmd.Flags().StringVar(&role, "role", "software_architect", "Expert role for both coordinator and worker")
-	cmd.Flags().StringVar(&workingDir, "working-dir", ".", "Working directory for context")
-	cmd.Flags().BoolVar(&verbose, "verbose", false, "Show detailed output from each phase")
+	cmd.Flags().StringVar(&profile, "profile", "", "Load a saved profile")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Show detailed output")
 
 	return cmd
 }
 
-func runFabric(task, coordinatorName, workerName, role, workingDir string, verbose bool) {
-	fmt.Println("🧵 Zen Claw - Fabric Mode")
-	fmt.Println("═" + strings.Repeat("═", 78))
-	fmt.Printf("Role: %s\n", role)
-	fmt.Printf("Coordinator: %s (plans + reviews)\n", coordinatorName)
-	fmt.Printf("Worker: %s (executes)\n", workerName)
-	fmt.Printf("Task: %s\n", truncateFabric(task, 80))
-	fmt.Println()
-
-	// Load config
-	cfg, err := config.LoadConfig("")
-	if err != nil {
-		fmt.Printf("❌ Failed to load config: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Create provider factory
-	factory := providers.NewFactory(cfg)
-
-	// Create coordinator provider
-	coordinator, err := factory.CreateProvider(coordinatorName)
-	if err != nil {
-		fmt.Printf("❌ Failed to create coordinator (%s): %v\n", coordinatorName, err)
-		os.Exit(1)
-	}
-
-	// Create worker provider
-	worker, err := factory.CreateProvider(workerName)
-	if err != nil {
-		fmt.Printf("❌ Failed to create worker (%s): %v\n", workerName, err)
-		os.Exit(1)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
-
-	totalStart := time.Now()
-
-	// ═══════════════════════════════════════════════════════════════════════
-	// PHASE 1: Coordinator creates detailed plan
-	// ═══════════════════════════════════════════════════════════════════════
-	fmt.Println("📋 Phase 1: Coordinator creating execution plan...")
-	planStart := time.Now()
-
-	planPrompt := fmt.Sprintf(`You are a %s acting as a coordinator.
-
-Your team has a worker AI (%s) that will execute the task. Your job is to:
-1. Analyze the task thoroughly
-2. Create a DETAILED execution plan for the worker
-3. Specify exactly what the worker should analyze/produce
-4. Define success criteria
-
-TASK FROM USER:
-%s
-
-WORKING DIRECTORY: %s
-
-Create a detailed execution plan. Be specific about:
-- What files/areas to analyze (if applicable)
-- What aspects to focus on
-- What format the output should be in
-- Success criteria
-
-Your plan will be given to the worker AI as instructions.`, role, workerName, task, workingDir)
-
-	planResp, err := coordinator.Chat(ctx, ai.ChatRequest{
-		Model: cfg.GetModel(coordinatorName),
-		Messages: []ai.Message{
-			{Role: "user", Content: planPrompt},
-		},
-		MaxTokens:   2000,
-		Temperature: 0.7,
-	})
-	if err != nil {
-		fmt.Printf("❌ Coordinator failed to create plan: %v\n", err)
-		os.Exit(1)
-	}
-
-	planDuration := time.Since(planStart)
-	fmt.Printf("✓ Plan created in %v\n", planDuration.Round(time.Millisecond))
-
-	if verbose {
-		fmt.Println("\n" + strings.Repeat("─", 60))
-		fmt.Println("COORDINATOR'S PLAN:")
-		fmt.Println(strings.Repeat("─", 60))
-		fmt.Println(planResp.Content)
-		fmt.Println(strings.Repeat("─", 60))
-	}
-
-	// ═══════════════════════════════════════════════════════════════════════
-	// PHASE 2: Worker executes the plan
-	// ═══════════════════════════════════════════════════════════════════════
-	fmt.Println("\n⚙️  Phase 2: Worker executing plan...")
-	execStart := time.Now()
-
-	execPrompt := fmt.Sprintf(`You are a %s executing a task assigned by your coordinator.
-
-ORIGINAL TASK:
-%s
-
-COORDINATOR'S EXECUTION PLAN:
-%s
-
-WORKING DIRECTORY: %s
-
-Execute the plan thoroughly. Provide:
-1. Detailed analysis/findings
-2. Specific recommendations with code examples where relevant
-3. Prioritized action items
-4. Any risks or concerns identified
-
-Be comprehensive and actionable.`, role, task, planResp.Content, workingDir)
-
-	execResp, err := worker.Chat(ctx, ai.ChatRequest{
-		Model: cfg.GetModel(workerName),
-		Messages: []ai.Message{
-			{Role: "user", Content: execPrompt},
-		},
-		MaxTokens:   6000,
-		Temperature: 0.7,
-	})
-	if err != nil {
-		fmt.Printf("❌ Worker failed to execute: %v\n", err)
-		os.Exit(1)
-	}
-
-	execDuration := time.Since(execStart)
-	fmt.Printf("✓ Execution completed in %v\n", execDuration.Round(time.Millisecond))
-
-	if verbose {
-		fmt.Println("\n" + strings.Repeat("─", 60))
-		fmt.Println("WORKER'S OUTPUT:")
-		fmt.Println(strings.Repeat("─", 60))
-		fmt.Println(execResp.Content)
-		fmt.Println(strings.Repeat("─", 60))
-	}
-
-	// ═══════════════════════════════════════════════════════════════════════
-	// PHASE 3: Coordinator reviews and synthesizes
-	// ═══════════════════════════════════════════════════════════════════════
-	fmt.Println("\n🔍 Phase 3: Coordinator reviewing and synthesizing...")
-	reviewStart := time.Now()
-
-	reviewPrompt := fmt.Sprintf(`You are a %s reviewing work from your team.
-
-ORIGINAL TASK:
-%s
-
-YOUR EXECUTION PLAN:
-%s
-
-WORKER'S OUTPUT:
-%s
-
-As the coordinator, provide:
-
-1. QUALITY ASSESSMENT
-   - Did the worker address all aspects of the plan?
-   - Rate the quality: 1-10
-   - What was done well?
-   - What was missed or needs improvement?
-
-2. FINAL SYNTHESIS
-   - Key findings (prioritized)
-   - Critical recommendations
-   - Immediate action items
-
-3. EXECUTIVE SUMMARY
-   - 3-5 bullet points for leadership
-   - Risk level assessment (Low/Medium/High/Critical)
-
-Be decisive and actionable.`, role, task, planResp.Content, execResp.Content)
-
-	reviewResp, err := coordinator.Chat(ctx, ai.ChatRequest{
-		Model: cfg.GetModel(coordinatorName),
-		Messages: []ai.Message{
-			{Role: "user", Content: reviewPrompt},
-		},
-		MaxTokens:   4000,
-		Temperature: 0.5,
-	})
-	if err != nil {
-		fmt.Printf("❌ Coordinator failed to review: %v\n", err)
-		os.Exit(1)
-	}
-
-	reviewDuration := time.Since(reviewStart)
-	fmt.Printf("✓ Review completed in %v\n", reviewDuration.Round(time.Millisecond))
-
-	// ═══════════════════════════════════════════════════════════════════════
-	// FINAL OUTPUT
-	// ═══════════════════════════════════════════════════════════════════════
-	totalDuration := time.Since(totalStart)
-
-	fmt.Println("\n" + strings.Repeat("═", 80))
-	fmt.Println("📊 TIMING SUMMARY")
-	fmt.Println(strings.Repeat("─", 80))
-	fmt.Printf("  Phase 1 (Plan):    %v (%s)\n", planDuration.Round(time.Millisecond), coordinatorName)
-	fmt.Printf("  Phase 2 (Execute): %v (%s)\n", execDuration.Round(time.Millisecond), workerName)
-	fmt.Printf("  Phase 3 (Review):  %v (%s)\n", reviewDuration.Round(time.Millisecond), coordinatorName)
-	fmt.Printf("  Total:             %v\n", totalDuration.Round(time.Millisecond))
-
-	fmt.Println("\n" + strings.Repeat("═", 80))
-	fmt.Println("📋 COORDINATOR'S FINAL REPORT")
-	fmt.Println(strings.Repeat("═", 80))
-	fmt.Println()
-	fmt.Println(reviewResp.Content)
-	fmt.Println()
-	fmt.Println(strings.Repeat("═", 80))
-
-	// Show raw worker output if not verbose (user might want it)
-	if !verbose {
-		fmt.Println("\n💡 Use --verbose to see detailed worker output")
-	}
-}
-
-func truncateFabric(s string, maxLen int) string {
-	s = strings.TrimSpace(s)
-	s = strings.ReplaceAll(s, "\n", " ")
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
-}
-
 // FabricSession maintains state for interactive fabric mode
 type FabricSession struct {
-	cfg              *config.Config
-	factory          *providers.Factory
-	coordinator      string
-	worker           string
-	role             string
-	workingDir       string
-	verbose          bool
-	history          []FabricExchange // Conversation history for context
-	coordinatorMsgs  []ai.Message     // Coordinator's message history
-	workerMsgs       []ai.Message     // Worker's message history
+	cfg         *config.Config
+	factory     *providers.Factory
+	coordinator string
+	workers     []SpecializedWorker
+	workingDir  string
+	verbose     bool
+	history     []FabricExchange
+	workerMsgs  map[string][]ai.Message // worker name -> messages
+	coordMsgs   []ai.Message
+	profilesDir string
 }
 
 // FabricExchange represents one task execution
 type FabricExchange struct {
 	Task           string
-	Plan           string
-	WorkerOutput   string
-	CoordinatorReview string
+	WorkerOutputs  map[string]string
+	CoordReview    string
 	Timestamp      time.Time
 }
 
 // runFabricInteractive runs the fabric session in interactive mode
-func runFabricInteractive(coordinator, worker, role, workingDir string, verbose bool) {
-	fmt.Println("🧵 Zen Claw - Fabric Interactive Session")
+func runFabricInteractive(profileName string, verbose bool) {
+	fmt.Println("🧵 Zen Claw - Multi-Worker Fabric")
 	fmt.Println("═" + strings.Repeat("═", 78))
-	fmt.Println("Coordinator + Worker mode with shared context.")
 	fmt.Println()
-	fmt.Println("Commands:")
-	fmt.Println("  /coordinator <name>  - Set coordinator AI (deepseek, qwen, kimi, etc.)")
-	fmt.Println("  /worker <name>       - Set worker AI")
-	fmt.Println("  /role <name>         - Set expert role (security_architect, api_designer, etc.)")
-	fmt.Println("  /status              - Show current configuration")
-	fmt.Println("  /history             - Show task history")
-	fmt.Println("  /clear               - Clear conversation history")
-	fmt.Println("  /verbose             - Toggle verbose output")
-	fmt.Println("  /exit, /quit         - Exit fabric session")
-	fmt.Println("  /help                - Show this help")
+	fmt.Println("Team Commands:")
+	fmt.Println("  /coordinator <provider>      - Set coordinator (deepseek, qwen, kimi)")
+	fmt.Println("  /worker add <name> <provider> <role>  - Add a specialized worker")
+	fmt.Println("  /worker remove <name>        - Remove a worker")
+	fmt.Println("  /worker list                 - List all workers")
 	fmt.Println()
-	fmt.Println("Just type a task to run it through coordinator → worker → review.")
+	fmt.Println("Profile Commands:")
+	fmt.Println("  /profile save <name>         - Save current configuration")
+	fmt.Println("  /profile load <name>         - Load a saved profile")
+	fmt.Println("  /profile list                - List saved profiles")
+	fmt.Println("  /profile delete <name>       - Delete a profile")
+	fmt.Println()
+	fmt.Println("Session Commands:")
+	fmt.Println("  /status                      - Show current team")
+	fmt.Println("  /history                     - Show task history")
+	fmt.Println("  /clear                       - Clear history")
+	fmt.Println("  /verbose                     - Toggle verbose mode")
+	fmt.Println("  /exit                        - Exit")
+	fmt.Println()
+	fmt.Println("Just type a task to run it through your team.")
 	fmt.Println("═" + strings.Repeat("═", 78))
 
 	// Load config
@@ -356,31 +134,43 @@ func runFabricInteractive(coordinator, worker, role, workingDir string, verbose 
 	}
 
 	// Initialize session
+	home, _ := os.UserHomeDir()
 	session := &FabricSession{
 		cfg:         cfg,
 		factory:     providers.NewFactory(cfg),
-		coordinator: coordinator,
-		worker:      worker,
-		role:        role,
-		workingDir:  workingDir,
+		coordinator: "deepseek",
+		workers:     []SpecializedWorker{},
+		workingDir:  ".",
 		verbose:     verbose,
 		history:     []FabricExchange{},
-		coordinatorMsgs: []ai.Message{},
-		workerMsgs:      []ai.Message{},
+		workerMsgs:  make(map[string][]ai.Message),
+		coordMsgs:   []ai.Message{},
+		profilesDir: filepath.Join(home, ".zen", "zen-claw", "fabric-profiles"),
 	}
 
-	// Verify providers work
-	if _, err := session.factory.CreateProvider(session.coordinator); err != nil {
-		fmt.Printf("⚠️ Coordinator '%s' not available: %v\n", session.coordinator, err)
+	// Ensure profiles directory exists
+	os.MkdirAll(session.profilesDir, 0755)
+
+	// Load profile if specified
+	if profileName != "" {
+		if err := session.loadProfile(profileName); err != nil {
+			fmt.Printf("⚠️ Could not load profile '%s': %v\n", profileName, err)
+		} else {
+			fmt.Printf("✓ Loaded profile: %s\n", profileName)
+		}
 	}
-	if _, err := session.factory.CreateProvider(session.worker); err != nil {
-		fmt.Printf("⚠️ Worker '%s' not available: %v\n", session.worker, err)
+
+	// If no workers, add defaults
+	if len(session.workers) == 0 {
+		fmt.Println("\n💡 No workers configured. Add workers with: /worker add <name> <provider> <role>")
+		fmt.Println("   Example: /worker add go_expert qwen go_developer")
+		fmt.Println("   Example: /worker add ts_expert minimax typescript_developer")
 	}
 
 	session.printStatus()
 
 	// Setup readline
-	historyFile := filepath.Join(os.Getenv("HOME"), ".zen-claw-fabric-history")
+	historyFile := filepath.Join(home, ".zen-claw-fabric-history")
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:            "\n🧵 > ",
 		HistoryFile:       historyFile,
@@ -400,11 +190,10 @@ func runFabricInteractive(coordinator, worker, role, workingDir string, verbose 
 		input, err := rl.Readline()
 		if err != nil {
 			if err == readline.ErrInterrupt {
-				fmt.Println("\nInterrupted. Use /exit to quit.")
+				fmt.Println("\nUse /exit to quit.")
 				continue
 			}
 			if err == io.EOF {
-				fmt.Println("\nExiting...")
 				return
 			}
 			continue
@@ -415,177 +204,374 @@ func runFabricInteractive(coordinator, worker, role, workingDir string, verbose 
 			continue
 		}
 
-		// Handle commands
-		switch {
-		case input == "/exit" || input == "/quit":
-			fmt.Println("Exiting fabric session...")
+		session.handleCommand(input)
+	}
+}
+
+// handleCommand processes a command or task
+func (s *FabricSession) handleCommand(input string) {
+	switch {
+	case input == "/exit" || input == "/quit":
+		fmt.Println("Exiting fabric session...")
+		os.Exit(0)
+
+	case input == "/help":
+		s.printHelp()
+
+	case strings.HasPrefix(input, "/coordinator"):
+		s.handleCoordinator(input)
+
+	case strings.HasPrefix(input, "/worker"):
+		s.handleWorker(input)
+
+	case strings.HasPrefix(input, "/profile"):
+		s.handleProfile(input)
+
+	case input == "/status":
+		s.printStatus()
+
+	case input == "/history":
+		s.printHistory()
+
+	case input == "/clear":
+		s.history = []FabricExchange{}
+		s.workerMsgs = make(map[string][]ai.Message)
+		s.coordMsgs = []ai.Message{}
+		fmt.Println("✓ History cleared")
+
+	case input == "/verbose":
+		s.verbose = !s.verbose
+		fmt.Printf("✓ Verbose: %v\n", s.verbose)
+
+	default:
+		// It's a task
+		if len(s.workers) == 0 {
+			fmt.Println("❌ No workers configured. Add workers first:")
+			fmt.Println("   /worker add go_expert qwen go_developer")
 			return
+		}
+		s.runTask(input)
+	}
+}
 
-		case input == "/help":
-			fmt.Println("Commands:")
-			fmt.Println("  /coordinator <name>  - Set coordinator AI")
-			fmt.Println("  /worker <name>       - Set worker AI")
-			fmt.Println("  /role <name>         - Set expert role")
-			fmt.Println("  /status              - Show current configuration")
-			fmt.Println("  /history             - Show task history")
-			fmt.Println("  /clear               - Clear conversation history")
-			fmt.Println("  /verbose             - Toggle verbose output")
-			fmt.Println("  /exit, /quit         - Exit")
-			continue
+// handleCoordinator sets the coordinator
+func (s *FabricSession) handleCoordinator(input string) {
+	parts := strings.Fields(input)
+	if len(parts) < 2 {
+		fmt.Printf("Current coordinator: %s\n", s.coordinator)
+		fmt.Println("Usage: /coordinator <provider>")
+		return
+	}
 
-		case strings.HasPrefix(input, "/coordinator"):
-			parts := strings.Fields(input)
-			if len(parts) < 2 {
-				fmt.Printf("Current coordinator: %s\n", session.coordinator)
-				fmt.Println("Usage: /coordinator <name> (deepseek, qwen, kimi, glm, minimax)")
-				continue
+	provider := parts[1]
+	if _, err := s.factory.CreateProvider(provider); err != nil {
+		fmt.Printf("❌ Provider '%s' not available: %v\n", provider, err)
+		return
+	}
+
+	s.coordinator = provider
+	fmt.Printf("✓ Coordinator: %s\n", s.coordinator)
+}
+
+// handleWorker manages workers
+func (s *FabricSession) handleWorker(input string) {
+	parts := strings.Fields(input)
+	if len(parts) < 2 {
+		fmt.Println("Usage:")
+		fmt.Println("  /worker add <name> <provider> <role>")
+		fmt.Println("  /worker remove <name>")
+		fmt.Println("  /worker list")
+		return
+	}
+
+	action := parts[1]
+
+	switch action {
+	case "add":
+		if len(parts) < 5 {
+			fmt.Println("Usage: /worker add <name> <provider> <role>")
+			fmt.Println("Example: /worker add go_expert qwen go_developer")
+			fmt.Println("Example: /worker add ts_expert minimax typescript_developer")
+			fmt.Println("Example: /worker add security_expert deepseek security_architect")
+			return
+		}
+		name := parts[2]
+		provider := parts[3]
+		role := strings.Join(parts[4:], "_")
+
+		// Verify provider
+		if _, err := s.factory.CreateProvider(provider); err != nil {
+			fmt.Printf("❌ Provider '%s' not available: %v\n", provider, err)
+			return
+		}
+
+		// Check for duplicate name
+		for _, w := range s.workers {
+			if w.Name == name {
+				fmt.Printf("❌ Worker '%s' already exists\n", name)
+				return
 			}
-			newCoord := parts[1]
-			if _, err := session.factory.CreateProvider(newCoord); err != nil {
-				fmt.Printf("❌ Provider '%s' not available: %v\n", newCoord, err)
-				continue
+		}
+
+		s.workers = append(s.workers, SpecializedWorker{
+			Name:     name,
+			Provider: provider,
+			Role:     role,
+		})
+		fmt.Printf("✓ Added worker: %s (%s, role: %s)\n", name, provider, role)
+
+	case "remove":
+		if len(parts) < 3 {
+			fmt.Println("Usage: /worker remove <name>")
+			return
+		}
+		name := parts[2]
+		for i, w := range s.workers {
+			if w.Name == name {
+				s.workers = append(s.workers[:i], s.workers[i+1:]...)
+				delete(s.workerMsgs, name)
+				fmt.Printf("✓ Removed worker: %s\n", name)
+				return
 			}
-			session.coordinator = newCoord
-			fmt.Printf("✓ Coordinator set to: %s\n", session.coordinator)
-			continue
+		}
+		fmt.Printf("❌ Worker '%s' not found\n", name)
 
-		case strings.HasPrefix(input, "/worker"):
-			parts := strings.Fields(input)
-			if len(parts) < 2 {
-				fmt.Printf("Current worker: %s\n", session.worker)
-				fmt.Println("Usage: /worker <name> (deepseek, qwen, kimi, glm, minimax)")
-				continue
+	case "list":
+		if len(s.workers) == 0 {
+			fmt.Println("No workers configured.")
+			return
+		}
+		fmt.Println("\n👥 Workers:")
+		for _, w := range s.workers {
+			fmt.Printf("   • %s: %s (role: %s)\n", w.Name, w.Provider, w.Role)
+		}
+
+	default:
+		fmt.Println("Unknown action. Use: add, remove, list")
+	}
+}
+
+// handleProfile manages profiles
+func (s *FabricSession) handleProfile(input string) {
+	parts := strings.Fields(input)
+	if len(parts) < 2 {
+		fmt.Println("Usage:")
+		fmt.Println("  /profile save <name>")
+		fmt.Println("  /profile load <name>")
+		fmt.Println("  /profile list")
+		fmt.Println("  /profile delete <name>")
+		return
+	}
+
+	action := parts[1]
+
+	switch action {
+	case "save":
+		if len(parts) < 3 {
+			fmt.Println("Usage: /profile save <name>")
+			return
+		}
+		name := parts[2]
+		if err := s.saveProfile(name); err != nil {
+			fmt.Printf("❌ Failed to save: %v\n", err)
+		} else {
+			fmt.Printf("✓ Profile saved: %s\n", name)
+		}
+
+	case "load":
+		if len(parts) < 3 {
+			fmt.Println("Usage: /profile load <name>")
+			return
+		}
+		name := parts[2]
+		if err := s.loadProfile(name); err != nil {
+			fmt.Printf("❌ Failed to load: %v\n", err)
+		} else {
+			fmt.Printf("✓ Profile loaded: %s\n", name)
+			s.printStatus()
+		}
+
+	case "list":
+		s.listProfiles()
+
+	case "delete":
+		if len(parts) < 3 {
+			fmt.Println("Usage: /profile delete <name>")
+			return
+		}
+		name := parts[2]
+		path := filepath.Join(s.profilesDir, name+".json")
+		if err := os.Remove(path); err != nil {
+			fmt.Printf("❌ Failed to delete: %v\n", err)
+		} else {
+			fmt.Printf("✓ Profile deleted: %s\n", name)
+		}
+
+	default:
+		fmt.Println("Unknown action. Use: save, load, list, delete")
+	}
+}
+
+// saveProfile saves current configuration
+func (s *FabricSession) saveProfile(name string) error {
+	profile := FabricProfile{
+		Name:        name,
+		Coordinator: s.coordinator,
+		Workers:     s.workers,
+	}
+
+	data, err := json.MarshalIndent(profile, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	path := filepath.Join(s.profilesDir, name+".json")
+	return os.WriteFile(path, data, 0644)
+}
+
+// loadProfile loads a saved configuration
+func (s *FabricSession) loadProfile(name string) error {
+	path := filepath.Join(s.profilesDir, name+".json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	var profile FabricProfile
+	if err := json.Unmarshal(data, &profile); err != nil {
+		return err
+	}
+
+	s.coordinator = profile.Coordinator
+	s.workers = profile.Workers
+	s.workerMsgs = make(map[string][]ai.Message)
+	return nil
+}
+
+// listProfiles shows saved profiles
+func (s *FabricSession) listProfiles() {
+	entries, err := os.ReadDir(s.profilesDir)
+	if err != nil {
+		fmt.Println("No profiles found.")
+		return
+	}
+
+	fmt.Println("\n📁 Saved Profiles:")
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".json") {
+			name := strings.TrimSuffix(e.Name(), ".json")
+			// Load and show details
+			path := filepath.Join(s.profilesDir, e.Name())
+			if data, err := os.ReadFile(path); err == nil {
+				var p FabricProfile
+				if json.Unmarshal(data, &p) == nil {
+					workers := []string{}
+					for _, w := range p.Workers {
+						workers = append(workers, fmt.Sprintf("%s(%s)", w.Name, w.Provider))
+					}
+					fmt.Printf("   • %s: coord=%s, workers=[%s]\n", name, p.Coordinator, strings.Join(workers, ", "))
+				}
 			}
-			newWorker := parts[1]
-			if _, err := session.factory.CreateProvider(newWorker); err != nil {
-				fmt.Printf("❌ Provider '%s' not available: %v\n", newWorker, err)
-				continue
-			}
-			session.worker = newWorker
-			fmt.Printf("✓ Worker set to: %s\n", session.worker)
-			continue
-
-		case strings.HasPrefix(input, "/role"):
-			parts := strings.Fields(input)
-			if len(parts) < 2 {
-				fmt.Printf("Current role: %s\n", session.role)
-				fmt.Println("Available: security_architect, software_architect, api_designer, database_architect, devops_engineer, frontend_architect, or custom")
-				continue
-			}
-			session.role = strings.Join(parts[1:], "_")
-			fmt.Printf("✓ Role set to: %s\n", session.role)
-			continue
-
-		case input == "/status":
-			session.printStatus()
-			continue
-
-		case input == "/history":
-			session.printHistory()
-			continue
-
-		case input == "/clear":
-			session.history = []FabricExchange{}
-			session.coordinatorMsgs = []ai.Message{}
-			session.workerMsgs = []ai.Message{}
-			fmt.Println("✓ Conversation history cleared")
-			continue
-
-		case input == "/verbose":
-			session.verbose = !session.verbose
-			fmt.Printf("✓ Verbose mode: %v\n", session.verbose)
-			continue
-
-		default:
-			// It's a task - run through fabric
-			session.runTask(input)
 		}
 	}
 }
 
-// printStatus shows current fabric configuration
+// printStatus shows current configuration
 func (s *FabricSession) printStatus() {
 	fmt.Println()
-	fmt.Println("📊 Current Configuration:")
-	fmt.Println(strings.Repeat("─", 40))
+	fmt.Println("📊 Current Team:")
+	fmt.Println(strings.Repeat("─", 50))
 	fmt.Printf("  Coordinator: %s\n", s.coordinator)
-	fmt.Printf("  Worker:      %s\n", s.worker)
-	fmt.Printf("  Role:        %s\n", s.role)
-	fmt.Printf("  Working Dir: %s\n", s.workingDir)
-	fmt.Printf("  Verbose:     %v\n", s.verbose)
-	fmt.Printf("  History:     %d exchanges\n", len(s.history))
-	fmt.Println(strings.Repeat("─", 40))
+	fmt.Println("  Workers:")
+	if len(s.workers) == 0 {
+		fmt.Println("    (none)")
+	}
+	for _, w := range s.workers {
+		fmt.Printf("    • %s: %s (role: %s)\n", w.Name, w.Provider, w.Role)
+	}
+	fmt.Printf("  History: %d tasks\n", len(s.history))
+	fmt.Println(strings.Repeat("─", 50))
 }
 
-// printHistory shows past exchanges
+// printHistory shows past tasks
 func (s *FabricSession) printHistory() {
 	if len(s.history) == 0 {
 		fmt.Println("No history yet.")
 		return
 	}
-
 	fmt.Println("\n📜 Task History:")
-	fmt.Println(strings.Repeat("─", 60))
 	for i, ex := range s.history {
 		fmt.Printf("%d. [%s] %s\n", i+1, ex.Timestamp.Format("15:04:05"), truncateFabric(ex.Task, 60))
 	}
-	fmt.Println(strings.Repeat("─", 60))
 }
 
-// runTask executes a task through the fabric pipeline with context
+// printHelp shows help
+func (s *FabricSession) printHelp() {
+	fmt.Println("Team: /coordinator, /worker add/remove/list")
+	fmt.Println("Profile: /profile save/load/list/delete")
+	fmt.Println("Session: /status, /history, /clear, /verbose, /exit")
+}
+
+// runTask executes a task through the fabric pipeline
 func (s *FabricSession) runTask(task string) {
 	fmt.Println()
 	fmt.Printf("📋 Task: %s\n", truncateFabric(task, 70))
-	fmt.Printf("   Coordinator: %s → Worker: %s (role: %s)\n", s.coordinator, s.worker, s.role)
+	fmt.Printf("   Team: %s (coord) + %d workers\n", s.coordinator, len(s.workers))
 	fmt.Println()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 
 	totalStart := time.Now()
 
-	// Create providers
+	// Create coordinator
 	coordinator, err := s.factory.CreateProvider(s.coordinator)
 	if err != nil {
-		fmt.Printf("❌ Failed to create coordinator: %v\n", err)
+		fmt.Printf("❌ Coordinator not available: %v\n", err)
 		return
 	}
 
-	worker, err := s.factory.CreateProvider(s.worker)
-	if err != nil {
-		fmt.Printf("❌ Failed to create worker: %v\n", err)
-		return
-	}
-
-	// Build context from history
-	historyContext := s.buildHistoryContext()
-
 	// ═══════════════════════════════════════════════════════════════════════
-	// PHASE 1: Coordinator creates plan (with history context)
+	// PHASE 1: Coordinator creates plan and assigns subtasks to workers
 	// ═══════════════════════════════════════════════════════════════════════
-	fmt.Println("📋 Phase 1: Coordinator planning...")
+	fmt.Println("📋 Phase 1: Coordinator planning and assigning...")
 	planStart := time.Now()
 
-	planPrompt := fmt.Sprintf(`You are a %s acting as a coordinator.
+	// Build worker descriptions for coordinator
+	var workerDesc strings.Builder
+	for _, w := range s.workers {
+		workerDesc.WriteString(fmt.Sprintf("- %s (%s): specialized in %s\n", w.Name, w.Provider, w.Role))
+	}
 
+	planPrompt := fmt.Sprintf(`You are a technical coordinator managing a team of specialized AI workers.
+
+YOUR TEAM:
 %s
 
-Your worker AI (%s) will execute the task. Create a DETAILED execution plan.
-
-CURRENT TASK:
+TASK:
 %s
 
-WORKING DIRECTORY: %s
+Create a work plan that:
+1. Analyzes the task requirements
+2. Assigns specific subtasks to each worker based on their specialization
+3. Identifies dependencies (which tasks can run in parallel)
 
-Create a specific execution plan. The worker will receive this plan.`, 
-		s.role, historyContext, s.worker, task, s.workingDir)
+OUTPUT FORMAT (JSON):
+{
+  "overview": "Brief task analysis",
+  "assignments": [
+    {"worker": "worker_name", "subtask": "specific task description", "parallel": true/false}
+  ],
+  "synthesis_notes": "What to focus on when combining results"
+}
 
-	// Add to coordinator history
-	s.coordinatorMsgs = append(s.coordinatorMsgs, ai.Message{Role: "user", Content: planPrompt})
+Assign work to ALL workers. Be specific about what each worker should do.`, workerDesc.String(), task)
+
+	s.coordMsgs = append(s.coordMsgs, ai.Message{Role: "user", Content: planPrompt})
 
 	planResp, err := coordinator.Chat(ctx, ai.ChatRequest{
 		Model:       s.cfg.GetModel(s.coordinator),
-		Messages:    s.coordinatorMsgs,
+		Messages:    s.coordMsgs,
 		MaxTokens:   2000,
 		Temperature: 0.7,
 	})
@@ -594,142 +580,240 @@ Create a specific execution plan. The worker will receive this plan.`,
 		return
 	}
 
-	s.coordinatorMsgs = append(s.coordinatorMsgs, ai.Message{Role: "assistant", Content: planResp.Content})
-	planDuration := time.Since(planStart)
-	fmt.Printf("✓ Plan ready (%v)\n", planDuration.Round(time.Millisecond))
+	s.coordMsgs = append(s.coordMsgs, ai.Message{Role: "assistant", Content: planResp.Content})
+	fmt.Printf("✓ Plan ready (%v)\n", time.Since(planStart).Round(time.Millisecond))
 
 	if s.verbose {
 		fmt.Println("\n" + strings.Repeat("─", 40))
-		fmt.Println("PLAN:")
+		fmt.Println("COORDINATOR PLAN:")
 		fmt.Println(planResp.Content)
 		fmt.Println(strings.Repeat("─", 40))
 	}
 
+	// Parse assignments (best effort)
+	assignments := s.parseAssignments(planResp.Content, task)
+
 	// ═══════════════════════════════════════════════════════════════════════
-	// PHASE 2: Worker executes (with history context)
+	// PHASE 2: Workers execute in parallel
 	// ═══════════════════════════════════════════════════════════════════════
-	fmt.Println("⚙️  Phase 2: Worker executing...")
+	fmt.Println("\n⚙️  Phase 2: Workers executing in parallel...")
 	execStart := time.Now()
 
-	execPrompt := fmt.Sprintf(`You are a %s executing a task.
+	workerOutputs := s.executeWorkersParallel(ctx, assignments)
 
-%s
+	fmt.Printf("✓ All workers done (%v)\n", time.Since(execStart).Round(time.Millisecond))
 
-ORIGINAL TASK: %s
-
-COORDINATOR'S PLAN:
-%s
-
-Execute thoroughly. Provide detailed analysis and actionable recommendations.`,
-		s.role, historyContext, task, planResp.Content)
-
-	// Add to worker history
-	s.workerMsgs = append(s.workerMsgs, ai.Message{Role: "user", Content: execPrompt})
-
-	execResp, err := worker.Chat(ctx, ai.ChatRequest{
-		Model:       s.cfg.GetModel(s.worker),
-		Messages:    s.workerMsgs,
-		MaxTokens:   6000,
-		Temperature: 0.7,
-	})
-	if err != nil {
-		fmt.Printf("❌ Worker failed: %v\n", err)
-		return
-	}
-
-	s.workerMsgs = append(s.workerMsgs, ai.Message{Role: "assistant", Content: execResp.Content})
-	execDuration := time.Since(execStart)
-	fmt.Printf("✓ Execution complete (%v)\n", execDuration.Round(time.Millisecond))
-
+	// Show individual results if verbose
 	if s.verbose {
-		fmt.Println("\n" + strings.Repeat("─", 40))
-		fmt.Println("WORKER OUTPUT:")
-		fmt.Println(execResp.Content)
+		for name, output := range workerOutputs {
+			fmt.Println("\n" + strings.Repeat("─", 40))
+			fmt.Printf("WORKER %s:\n", strings.ToUpper(name))
+			fmt.Println(output)
+		}
 		fmt.Println(strings.Repeat("─", 40))
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════
-	// PHASE 3: Coordinator reviews
+	// PHASE 3: Coordinator synthesizes
 	// ═══════════════════════════════════════════════════════════════════════
-	fmt.Println("🔍 Phase 3: Coordinator reviewing...")
-	reviewStart := time.Now()
+	fmt.Println("\n🔍 Phase 3: Coordinator synthesizing...")
+	synthStart := time.Now()
 
-	reviewPrompt := fmt.Sprintf(`Review the worker's output for task: %s
+	var outputsSummary strings.Builder
+	for name, output := range workerOutputs {
+		worker := s.getWorker(name)
+		role := "unknown"
+		if worker != nil {
+			role = worker.Role
+		}
+		outputsSummary.WriteString(fmt.Sprintf("\n=== %s (%s) ===\n%s\n", strings.ToUpper(name), role, output))
+	}
 
-WORKER'S OUTPUT:
+	synthPrompt := fmt.Sprintf(`ORIGINAL TASK: %s
+
+WORKER OUTPUTS:
 %s
 
-Provide:
-1. Quality assessment (1-10)
-2. Key findings summary
-3. Action items
-4. Executive summary (3-5 bullets)`,
-		task, execResp.Content)
+Synthesize a comprehensive final report:
+1. KEY FINDINGS - Combined insights from all workers
+2. RECOMMENDATIONS - Prioritized action items
+3. QUALITY ASSESSMENT - Rate each worker's contribution (1-10)
+4. EXECUTIVE SUMMARY - 3-5 bullet points
 
-	s.coordinatorMsgs = append(s.coordinatorMsgs, ai.Message{Role: "user", Content: reviewPrompt})
+Be decisive and actionable.`, task, outputsSummary.String())
 
-	reviewResp, err := coordinator.Chat(ctx, ai.ChatRequest{
+	s.coordMsgs = append(s.coordMsgs, ai.Message{Role: "user", Content: synthPrompt})
+
+	synthResp, err := coordinator.Chat(ctx, ai.ChatRequest{
 		Model:       s.cfg.GetModel(s.coordinator),
-		Messages:    s.coordinatorMsgs,
-		MaxTokens:   3000,
+		Messages:    s.coordMsgs,
+		MaxTokens:   4000,
 		Temperature: 0.5,
 	})
 	if err != nil {
-		fmt.Printf("❌ Review failed: %v\n", err)
+		fmt.Printf("❌ Synthesis failed: %v\n", err)
 		return
 	}
 
-	s.coordinatorMsgs = append(s.coordinatorMsgs, ai.Message{Role: "assistant", Content: reviewResp.Content})
-	reviewDuration := time.Since(reviewStart)
+	s.coordMsgs = append(s.coordMsgs, ai.Message{Role: "assistant", Content: synthResp.Content})
 
 	// Save to history
 	s.history = append(s.history, FabricExchange{
-		Task:              task,
-		Plan:              planResp.Content,
-		WorkerOutput:      execResp.Content,
-		CoordinatorReview: reviewResp.Content,
-		Timestamp:         time.Now(),
+		Task:          task,
+		WorkerOutputs: workerOutputs,
+		CoordReview:   synthResp.Content,
+		Timestamp:     time.Now(),
 	})
 
 	// Print results
 	totalDuration := time.Since(totalStart)
-	fmt.Printf("✓ Review complete (%v)\n", reviewDuration.Round(time.Millisecond))
+	synthDuration := time.Since(synthStart)
 
-	fmt.Println("\n" + strings.Repeat("═", 60))
-	fmt.Printf("⏱️  Total: %v (plan: %v, exec: %v, review: %v)\n",
-		totalDuration.Round(time.Millisecond),
-		planDuration.Round(time.Millisecond),
-		execDuration.Round(time.Millisecond),
-		reviewDuration.Round(time.Millisecond))
-	fmt.Println(strings.Repeat("═", 60))
+	fmt.Printf("✓ Synthesis complete (%v)\n", synthDuration.Round(time.Millisecond))
+
+	fmt.Println("\n" + strings.Repeat("═", 70))
+	fmt.Printf("⏱️  Total: %v\n", totalDuration.Round(time.Millisecond))
+	fmt.Println(strings.Repeat("═", 70))
 	fmt.Println()
-	fmt.Println(reviewResp.Content)
+	fmt.Println(synthResp.Content)
 	fmt.Println()
-	fmt.Println(strings.Repeat("═", 60))
+	fmt.Println(strings.Repeat("═", 70))
 }
 
-// buildHistoryContext creates context from past exchanges
-func (s *FabricSession) buildHistoryContext() string {
-	if len(s.history) == 0 {
-		return ""
+// WorkerAssignment represents work assigned to a worker
+type WorkerAssignment struct {
+	WorkerName string
+	Subtask    string
+}
+
+// parseAssignments extracts worker assignments from coordinator's plan
+func (s *FabricSession) parseAssignments(plan, originalTask string) []WorkerAssignment {
+	assignments := []WorkerAssignment{}
+
+	// Try to parse JSON
+	jsonStart := strings.Index(plan, "{")
+	jsonEnd := strings.LastIndex(plan, "}")
+	if jsonStart >= 0 && jsonEnd > jsonStart {
+		jsonStr := plan[jsonStart : jsonEnd+1]
+		var parsed struct {
+			Assignments []struct {
+				Worker  string `json:"worker"`
+				Subtask string `json:"subtask"`
+			} `json:"assignments"`
+		}
+		if err := json.Unmarshal([]byte(jsonStr), &parsed); err == nil {
+			for _, a := range parsed.Assignments {
+				assignments = append(assignments, WorkerAssignment{
+					WorkerName: a.Worker,
+					Subtask:    a.Subtask,
+				})
+			}
+		}
 	}
 
-	var ctx strings.Builder
-	ctx.WriteString("PREVIOUS CONTEXT (from earlier in this session):\n")
-	
-	// Include last 2-3 exchanges for context
-	start := 0
-	if len(s.history) > 3 {
-		start = len(s.history) - 3
+	// If parsing failed or incomplete, assign the original task to all workers
+	if len(assignments) < len(s.workers) {
+		for _, w := range s.workers {
+			found := false
+			for _, a := range assignments {
+				if a.WorkerName == w.Name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				assignments = append(assignments, WorkerAssignment{
+					WorkerName: w.Name,
+					Subtask:    fmt.Sprintf("Analyze from your perspective as %s: %s", w.Role, originalTask),
+				})
+			}
+		}
 	}
 
-	for i := start; i < len(s.history); i++ {
-		ex := s.history[i]
-		ctx.WriteString(fmt.Sprintf("\n--- Previous Task %d ---\n", i+1))
-		ctx.WriteString(fmt.Sprintf("Task: %s\n", truncateFabric(ex.Task, 100)))
-		ctx.WriteString(fmt.Sprintf("Key findings: %s\n", truncateFabric(ex.CoordinatorReview, 500)))
-	}
-	ctx.WriteString("\n--- Current Task ---\n")
+	return assignments
+}
 
-	return ctx.String()
+// executeWorkersParallel runs all workers in parallel
+func (s *FabricSession) executeWorkersParallel(ctx context.Context, assignments []WorkerAssignment) map[string]string {
+	outputs := make(map[string]string)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for _, assignment := range assignments {
+		worker := s.getWorker(assignment.WorkerName)
+		if worker == nil {
+			continue
+		}
+
+		wg.Add(1)
+		go func(w *SpecializedWorker, subtask string) {
+			defer wg.Done()
+
+			fmt.Printf("   → %s starting...\n", w.Name)
+			start := time.Now()
+
+			provider, err := s.factory.CreateProvider(w.Provider)
+			if err != nil {
+				mu.Lock()
+				outputs[w.Name] = fmt.Sprintf("ERROR: %v", err)
+				mu.Unlock()
+				return
+			}
+
+			prompt := fmt.Sprintf(`You are a %s.
+
+YOUR TASK:
+%s
+
+Provide a detailed, actionable response from your specialized perspective.
+Include specific recommendations and examples where relevant.`, w.Role, subtask)
+
+			// Get or create worker message history
+			mu.Lock()
+			msgs := s.workerMsgs[w.Name]
+			msgs = append(msgs, ai.Message{Role: "user", Content: prompt})
+			mu.Unlock()
+
+			resp, err := provider.Chat(ctx, ai.ChatRequest{
+				Model:       s.cfg.GetModel(w.Provider),
+				Messages:    msgs,
+				MaxTokens:   4000,
+				Temperature: 0.7,
+			})
+
+			mu.Lock()
+			if err != nil {
+				outputs[w.Name] = fmt.Sprintf("ERROR: %v", err)
+			} else {
+				outputs[w.Name] = resp.Content
+				msgs = append(msgs, ai.Message{Role: "assistant", Content: resp.Content})
+				s.workerMsgs[w.Name] = msgs
+			}
+			mu.Unlock()
+
+			fmt.Printf("   ✓ %s done (%v)\n", w.Name, time.Since(start).Round(time.Millisecond))
+		}(worker, assignment.Subtask)
+	}
+
+	wg.Wait()
+	return outputs
+}
+
+// getWorker finds a worker by name
+func (s *FabricSession) getWorker(name string) *SpecializedWorker {
+	for i := range s.workers {
+		if s.workers[i].Name == name {
+			return &s.workers[i]
+		}
+	}
+	return nil
+}
+
+func truncateFabric(s string, maxLen int) string {
+	s = strings.TrimSpace(s)
+	s = strings.ReplaceAll(s, "\n", " ")
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
