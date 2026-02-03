@@ -12,6 +12,7 @@ import (
 	"github.com/neves/zen-claw/internal/ai"
 	"github.com/neves/zen-claw/internal/config"
 	"github.com/neves/zen-claw/internal/mcp"
+	"github.com/neves/zen-claw/internal/types"
 )
 
 // GatewayAICaller implements agent.AICaller for gateway
@@ -149,18 +150,11 @@ func NewAgentService(cfg *config.Config) *AgentService {
 	}
 }
 
-// ChatRequest represents a chat request to the agent service
-type ChatRequest struct {
-	SessionID     string `json:"session_id"`
-	UserInput     string `json:"user_input"`
-	WorkingDir    string `json:"working_dir,omitempty"`
-	Provider      string `json:"provider,omitempty"`
-	Model         string `json:"model,omitempty"`
-	MaxSteps      int    `json:"max_steps,omitempty"`
-	ThinkingLevel string `json:"thinking_level,omitempty"` // off, low, medium, high
-}
+// ChatRequest is an alias to the shared type
+type ChatRequest = types.ChatRequest
 
 // ChatResponse represents a chat response from the agent service
+// Uses typed SessionInfo internally (converts to map for JSON wire format)
 type ChatResponse struct {
 	SessionID   string             `json:"session_id"`
 	Result      string             `json:"result"`

@@ -7,32 +7,15 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/neves/zen-claw/internal/types"
 )
 
-// ChatRequest is the request format for the gateway
-type ChatRequest struct {
-	SessionID  string `json:"session_id,omitempty"`
-	UserInput  string `json:"user_input"`
-	WorkingDir string `json:"working_dir,omitempty"`
-	Provider   string `json:"provider,omitempty"`
-	Model      string `json:"model,omitempty"`
-	MaxSteps   int    `json:"max_steps,omitempty"`
-}
+// Use shared types
+type ChatRequest = types.ChatRequest
+type ProgressEvent = types.ProgressEvent
 
-// ChatResult is the result from the gateway
-type ChatResult struct {
-	SessionID   string                 `json:"session_id"`
-	Result      string                 `json:"result"`
-	SessionInfo map[string]interface{} `json:"session_info"`
-}
-
-// ProgressEvent represents a progress event from the gateway
-type ProgressEvent struct {
-	Type    string      `json:"type"`
-	Step    int         `json:"step"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data"`
-}
+// ChatResult is the result from the gateway (alias for ChatResponse)
+type ChatResult = types.ChatResponse
 
 // NewGatewayClient creates a new gateway WebSocket client
 func NewGatewayClient(url string) (*GatewayClient, error) {

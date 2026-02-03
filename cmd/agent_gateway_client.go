@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/neves/zen-claw/internal/types"
 )
 
 // GatewayClient handles communication with the Zen Claw gateway
@@ -30,24 +32,9 @@ func NewGatewayClient(baseURL string) *GatewayClient {
 	}
 }
 
-// ChatRequest represents a chat request to the gateway
-type ChatRequest struct {
-	SessionID     string `json:"session_id"`
-	UserInput     string `json:"user_input"`
-	WorkingDir    string `json:"working_dir"`
-	Provider      string `json:"provider"`
-	Model         string `json:"model"`
-	MaxSteps      int    `json:"max_steps"`
-	ThinkingLevel string `json:"thinking_level,omitempty"` // off, low, medium, high
-}
-
-// ChatResponse represents a chat response from the gateway
-type ChatResponse struct {
-	SessionID   string                 `json:"session_id"`
-	Result      string                 `json:"result"`
-	Error       string                 `json:"error,omitempty"`
-	SessionInfo map[string]interface{} `json:"session_info,omitempty"`
-}
+// Use shared types
+type ChatRequest = types.ChatRequest
+type ChatResponse = types.ChatResponse
 
 // HealthCheck checks if the gateway is reachable
 func (gc *GatewayClient) HealthCheck() error {

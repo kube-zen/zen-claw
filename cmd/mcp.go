@@ -19,22 +19,18 @@ func newMCPCmd() *cobra.Command {
 MCP servers provide tools, resources, and prompts that can be used by the AI agent.
 
 Examples:
-  # Connect to an MCP server
-  zen-claw mcp connect filesystem -- npx @modelcontextprotocol/server-filesystem /path
+  # Connect to a Go MCP server
+  zen-claw mcp connect mytools -- ./my-mcp-server
 
   # Connect to a Python MCP server  
   zen-claw mcp connect weather -- python weather_server.py
 
   # List connected servers and their tools
-  zen-claw mcp list
-
-  # Test a specific tool
-  zen-claw mcp test filesystem read_file path=/etc/hostname`,
+  zen-claw mcp list`,
 	}
 
 	cmd.AddCommand(newMCPConnectCmd())
 	cmd.AddCommand(newMCPListCmd())
-	cmd.AddCommand(newMCPTestCmd())
 
 	return cmd
 }
@@ -48,8 +44,7 @@ func newMCPConnectCmd() *cobra.Command {
 The command after -- is executed to start the MCP server.
 
 Examples:
-  zen-claw mcp connect fs -- npx @modelcontextprotocol/server-filesystem /home
-  zen-claw mcp connect git -- npx @modelcontextprotocol/server-git
+  zen-claw mcp connect tools -- ./my-mcp-server --port 0
   zen-claw mcp connect weather -- python weather_mcp.py`,
 		Args: cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
@@ -108,47 +103,37 @@ Examples:
 func newMCPListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "List available MCP server examples",
+		Short: "Show MCP info and how to build servers",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("Popular MCP Servers:")
-			fmt.Println("═" + strings.Repeat("═", 70))
+			fmt.Println("MCP (Model Context Protocol) - Extend zen-claw with external tools")
+			fmt.Println("═" + strings.Repeat("═", 60))
 			fmt.Println()
-			fmt.Println("  Filesystem - Read/write local files")
-			fmt.Println("    npx @modelcontextprotocol/server-filesystem <allowed-path>")
+			fmt.Println("MCP servers communicate via stdio (stdin/stdout JSON-RPC).")
 			fmt.Println()
-			fmt.Println("  Git - Git operations")
-			fmt.Println("    npx @modelcontextprotocol/server-git")
+			fmt.Println("Build a Go MCP server with github.com/mark3labs/mcp-go:")
 			fmt.Println()
-			fmt.Println("  GitHub - GitHub API access")
-			fmt.Println("    npx @modelcontextprotocol/server-github")
+			fmt.Println("  package main")
 			fmt.Println()
-			fmt.Println("  Fetch - HTTP requests")
-			fmt.Println("    npx @modelcontextprotocol/server-fetch")
+			fmt.Println("  import (")
+			fmt.Println("      \"github.com/mark3labs/mcp-go/mcp\"")
+			fmt.Println("      \"github.com/mark3labs/mcp-go/server\"")
+			fmt.Println("  )")
 			fmt.Println()
-			fmt.Println("  Memory - Key-value storage")
-			fmt.Println("    npx @modelcontextprotocol/server-memory")
+			fmt.Println("  func main() {")
+			fmt.Println("      s := server.NewMCPServer(\"MyTools\", \"1.0.0\")")
+			fmt.Println("      s.AddTool(mcp.NewTool(\"hello\", ...))")
+			fmt.Println("      server.ServeStdio(s)")
+			fmt.Println("  }")
 			fmt.Println()
-			fmt.Println("  Brave Search - Web search")
-			fmt.Println("    npx @modelcontextprotocol/server-brave-search")
+			fmt.Println("Then connect:")
+			fmt.Println("  zen-claw mcp connect mytools -- ./my-mcp-server")
 			fmt.Println()
-			fmt.Println("Usage:")
-			fmt.Println("  zen-claw mcp connect <name> -- <command from above>")
+			fmt.Println("Or add to config.yaml:")
+			fmt.Println("  mcp:")
+			fmt.Println("    servers:")
+			fmt.Println("      - name: mytools")
+			fmt.Println("        command: ./my-mcp-server")
 		},
 	}
 }
 
-func newMCPTestCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "test <server> <tool> [key=value...]",
-		Short: "Test an MCP tool",
-		Args:  cobra.MinimumNArgs(2),
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("Note: MCP tool testing requires an active connection.")
-			fmt.Println("Use 'zen-claw mcp connect' first, then test in agent mode.")
-			fmt.Println()
-			fmt.Println("Example workflow:")
-			fmt.Println("  1. zen-claw mcp connect fs -- npx @modelcontextprotocol/server-filesystem /home")
-			fmt.Println("  2. zen-claw agent  # MCP tools will be available")
-		},
-	}
-}

@@ -64,14 +64,11 @@ sessions:
   max_sessions: 5
 
 # MCP Servers (optional) - auto-connect on gateway start
-mcp:
-  servers:
-    - name: filesystem
-      command: npx
-      args: ["@modelcontextprotocol/server-filesystem", "/home"]
-    - name: git
-      command: npx
-      args: ["@modelcontextprotocol/server-git"]
+# mcp:
+#   servers:
+#     - name: myserver
+#       command: /path/to/mcp-server
+#       args: ["--flag"]
 ```
 
 ## Getting API Keys
