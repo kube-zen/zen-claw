@@ -237,7 +237,9 @@ func (r *AIRouter) GetCircuitStats() map[string]map[string]interface{} {
 
 // ChatStream sends a streaming chat request
 func (r *AIRouter) ChatStream(ctx context.Context, req ai.ChatRequest, preferredProvider string, callback ai.StreamCallback) (*ai.ChatResponse, error) {
-	providerChain := r.getProviderChain(preferredProvider)
+	// Estimate context size and get context-aware provider chain
+	estimatedTokens := EstimateTokens(req.Messages)
+	providerChain := r.getProviderChainForContext(preferredProvider, estimatedTokens)
 
 	var lastErr error
 

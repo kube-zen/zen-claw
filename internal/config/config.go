@@ -256,6 +256,16 @@ func NewDefaultConfig() *Config {
 		Preferences: PreferencesConfig{
 			FallbackOrder: []string{"deepseek", "kimi", "glm", "minimax", "qwen", "openai"},
 		},
+		Routing: RoutingConfig{
+			SmartRouting: true,
+			ContextTiers: ContextTiersConfig{
+				SmallMax:  32000,  // <32K: use cheapest (deepseek)
+				MediumMax: 200000, // 32K-200K: use balanced (qwen, kimi)
+				// >200K: use premium (minimax 4M, gemini 1M)
+			},
+			PremiumBudget:  5.0,  // $5/day for premium models
+			RequireConfirm: true, // Require confirmation for large context
+		},
 	}
 }
 

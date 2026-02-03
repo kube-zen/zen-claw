@@ -132,6 +132,42 @@ curl http://localhost:8080/sessions
 | Large codebase | qwen | 262K context |
 | Complex reasoning | kimi | Strong analysis |
 
+## Smart Context Routing
+
+The gateway automatically routes requests based on context size:
+
+| Context Size | Tier | Providers | Strategy |
+|--------------|------|-----------|----------|
+| <32K tokens | small | deepseek, glm | Cheapest first |
+| 32K-200K | medium | qwen, kimi | Balanced cost/capability |
+| >200K | large | minimax (4M), gemini (1M) | Premium for massive context |
+
+### How it works:
+1. Gateway estimates token count from messages
+2. Selects appropriate tier
+3. Routes to providers that can handle the context
+4. Falls back to cheaper options when possible
+
+### Config:
+```yaml
+routing:
+  smart_routing: true
+  context_tiers:
+    small_max: 32000    # <32K → cheap tier
+    medium_max: 200000  # 32K-200K → balanced tier
+    # >200K → premium tier
+  premium_budget: 5.0   # Daily $ limit for premium
+  require_confirm: true # Confirm before premium
+```
+
+### "Lost in the Middle" mitigation:
+For large contexts (>50K tokens), the gateway automatically restructures prompts:
+- Critical instructions at START and END
+- Context data in the middle
+- Reminder before final user question
+
+This addresses the known limitation where models struggle to recall info from the middle of long prompts.
+
 ## Architecture
 
 ```

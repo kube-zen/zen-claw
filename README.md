@@ -284,6 +284,7 @@ zen-claw completion fish | source
 - [x] **Apply patch** - Multi-file structured patches
 - [x] **Thinking levels** - `/think off/low/medium/high` for model reasoning depth
 - [x] **Subagents** - Spawn parallel background agent runs
+- [x] **Smart context routing** - Route by context size: small→cheap, large→premium
 
 ### Short Term (Next)
 
