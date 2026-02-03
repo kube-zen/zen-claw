@@ -44,6 +44,7 @@ func init() {
 	rootCmd.AddCommand(newFabricCmd())
 	rootCmd.AddCommand(newFactoryCmd())
 	rootCmd.AddCommand(newGatewayCmd())
+	rootCmd.AddCommand(newMCPCmd())
 	rootCmd.AddCommand(newSessionCmd())
 	rootCmd.AddCommand(newSlackCmd())
 	rootCmd.AddCommand(newToolsCmd())

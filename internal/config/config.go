@@ -17,6 +17,19 @@ type Config struct {
 	Consensus   ConsensusConfig   `yaml:"consensus"`
 	Factory     FactoryConfig     `yaml:"factory"`
 	Preferences PreferencesConfig `yaml:"preferences"`
+	Web         WebConfig         `yaml:"web"`
+}
+
+// WebConfig configures web tools (search, fetch)
+type WebConfig struct {
+	Search WebSearchConfig `yaml:"search"`
+}
+
+// WebSearchConfig configures web search
+type WebSearchConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	APIKey   string `yaml:"api_key"`   // Brave Search API key
+	Provider string `yaml:"provider"`  // "brave" (default)
 }
 
 type SessionsConfig struct {
@@ -285,6 +298,16 @@ func (c *Config) GetAPIKey(provider string) string {
 	}
 
 	return ""
+}
+
+// GetBraveAPIKey returns the Brave Search API key from config or environment
+func (c *Config) GetBraveAPIKey() string {
+	// Check environment first
+	if key := os.Getenv("BRAVE_API_KEY"); key != "" {
+		return key
+	}
+	// Then config
+	return c.Web.Search.APIKey
 }
 
 // GetModel returns the model for a provider

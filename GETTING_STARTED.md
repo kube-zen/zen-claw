@@ -138,7 +138,7 @@ curl http://localhost:8080/sessions
 
 ## Available Tools
 
-The AI agent has access to:
+The AI agent has access to 20 tools:
 
 | Tool | Description |
 |------|-------------|
@@ -158,6 +158,10 @@ The AI agent has access to:
 | `git_log` | Show commit history |
 | `preview_write` | Preview diff before writing file |
 | `preview_edit` | Preview diff before editing file |
+| `web_search` | Search the web (Brave Search API) |
+| `web_fetch` | Fetch URL and extract readable content |
+| `process` | Background process management (start/poll/kill) |
+| `apply_patch` | Multi-file structured patches |
 
 ## Troubleshooting
 

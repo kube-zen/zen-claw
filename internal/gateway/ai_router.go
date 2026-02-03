@@ -234,6 +234,76 @@ func (r *AIRouter) GetCircuitStats() map[string]map[string]interface{} {
 	return r.circuits.AllStats()
 }
 
+// ChatStream sends a streaming chat request
+func (r *AIRouter) ChatStream(ctx context.Context, req ai.ChatRequest, preferredProvider string, callback ai.StreamCallback) (*ai.ChatResponse, error) {
+	providerChain := r.getProviderChain(preferredProvider)
+
+	var lastErr error
+
+	for _, providerName := range providerChain {
+		provider, exists := r.providers[providerName]
+		if !exists {
+			continue
+		}
+
+		// Check circuit breaker
+		cb := r.circuits.Get(providerName)
+		if !cb.IsAvailable() {
+			log.Printf("[AIRouter] Skipping %s (circuit open)", providerName)
+			continue
+		}
+
+		log.Printf("[AIRouter] Streaming from provider: %s", providerName)
+
+		var resp *ai.ChatResponse
+		err := cb.Call(ctx, func() error {
+			var callErr error
+			// Use provider's streaming method
+			if streamProvider, ok := provider.(interface {
+				ChatStream(context.Context, ai.ChatRequest, ai.StreamCallback) (*ai.ChatResponse, error)
+			}); ok {
+				resp, callErr = streamProvider.ChatStream(ctx, req, callback)
+			} else {
+				// Fallback to non-streaming
+				resp, callErr = provider.Chat(ctx, req)
+				if callErr == nil && callback != nil && resp.Content != "" {
+					callback(resp.Content)
+				}
+			}
+			return callErr
+		})
+
+		if err == nil {
+			log.Printf("[AIRouter] Provider %s streaming succeeded", providerName)
+
+			// Track cost
+			inputTokens := 0
+			for _, msg := range req.Messages {
+				inputTokens += len(msg.Content) / 4
+			}
+			outputTokens := len(resp.Content) / 4
+			if outputTokens > 0 {
+				r.usageMu.Lock()
+				r.usage.Record(providerName, req.Model, inputTokens, outputTokens)
+				r.usageMu.Unlock()
+			}
+
+			return resp, nil
+		}
+
+		log.Printf("[AIRouter] Provider %s stream failed: %v", providerName, err)
+		lastErr = err
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+	}
+
+	return nil, fmt.Errorf("all providers failed streaming. Last error: %w", lastErr)
+}
+
 // getProviderChain returns provider chain based on preference and cost optimization
 func (r *AIRouter) getProviderChain(preferred string) []string {
 	// If a specific provider is requested, use only that provider

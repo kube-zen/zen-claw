@@ -90,3 +90,16 @@ func (p *MockProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatRe
 		FinishReason: "stop",
 	}, nil
 }
+
+// ChatStream falls back to Chat for mock provider
+func (p *MockProvider) ChatStream(ctx context.Context, req ai.ChatRequest, callback ai.StreamCallback) (*ai.ChatResponse, error) {
+	resp, err := p.Chat(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	// Simulate streaming by sending content in one chunk
+	if callback != nil && resp.Content != "" {
+		callback(resp.Content)
+	}
+	return resp, nil
+}

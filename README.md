@@ -261,7 +261,7 @@ zen-claw completion fish | source
 - [x] WebSocket support - Bidirectional communication with cancel support
 - [x] **Slack integration** - Thread-based sessions, progress streaming, commands
 - [x] Session persistence and management
-- [x] Tool system (16 tools: file ops, git, preview)
+- [x] Tool system (20 tools: file, git, web, process, patch)
 - [x] Interactive CLI with readline
 - [x] Provider fallback routing
 - [x] Context limit control
@@ -276,17 +276,15 @@ zen-claw completion fish | source
 - [x] **Git tools** - Built-in git_status, git_diff, git_add, git_commit, git_push, git_log
 - [x] **Diff preview** - preview_write/preview_edit show changes before modifying files
 - [x] **Parallel tool execution** - Read-only tools run concurrently (2-5x speedup)
+- [x] **Circuit breaker** - Provider health tracking, auto-disable unhealthy providers
+- [x] **Streaming responses** - Provider-level streaming with `--stream` flag
+- [x] **MCP protocol support** - Connect to MCP servers (`zen-claw mcp connect`)
 
 ### Short Term (Next)
 
-- [ ] **MCP protocol support** - Integrate Model Context Protocol tools
-- [ ] **Circuit breaker** - Provider health tracking, auto-disable unhealthy
+- [ ] **MCP in agent** - Wire MCP tools into agent sessions
 
 ### Medium Term
-
-- [ ] **MCP protocol support** - Integrate Model Context Protocol tools
-- [ ] **Streaming responses** - Token-by-token AI response display
-- [ ] **Circuit breaker** - Provider health tracking, auto-disable unhealthy
 
 ### Long Term
 

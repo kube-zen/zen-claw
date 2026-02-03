@@ -311,3 +311,86 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req ai.ChatRequest)
 
 	return chatResp, nil
 }
+
+// ChatStream implements streaming chat with token-by-token callback
+func (p *OpenAICompatibleProvider) ChatStream(ctx context.Context, req ai.ChatRequest, callback ai.StreamCallback) (*ai.ChatResponse, error) {
+	// If no tools are requested, we can stream
+	// Tool calls require non-streaming to get complete response
+	if len(req.Tools) > 0 {
+		// Fall back to non-streaming for tool calls
+		return p.Chat(ctx, req)
+	}
+
+	// Convert messages
+	messages := make([]openai.ChatCompletionMessage, 0, len(req.Messages))
+	for _, msg := range req.Messages {
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    msg.Role,
+			Content: msg.Content,
+		})
+	}
+
+	model := p.config.Model
+	if req.Model != "" {
+		model = req.Model
+	}
+
+	maxTokens := 8192
+	if req.MaxTokens > 0 {
+		maxTokens = req.MaxTokens
+	}
+
+	completionReq := openai.ChatCompletionRequest{
+		Model:     model,
+		Messages:  messages,
+		MaxTokens: maxTokens,
+		Stream:    true,
+	}
+
+	if req.Temperature > 0 {
+		completionReq.Temperature = float32(req.Temperature)
+	}
+
+	// Create streaming request
+	stream, err := p.client.CreateChatCompletionStream(ctx, completionReq)
+	if err != nil {
+		return nil, fmt.Errorf("stream request failed: %w", err)
+	}
+	defer stream.Close()
+
+	var content strings.Builder
+	var finishReason string
+
+	for {
+		response, err := stream.Recv()
+		if err != nil {
+			// Check for normal stream end
+			if err.Error() == "EOF" {
+				break
+			}
+			// Check if context cancelled
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, fmt.Errorf("stream receive error: %w", err)
+		}
+
+		if len(response.Choices) > 0 {
+			delta := response.Choices[0].Delta.Content
+			if delta != "" {
+				content.WriteString(delta)
+				if callback != nil {
+					callback(delta)
+				}
+			}
+			if response.Choices[0].FinishReason != "" {
+				finishReason = string(response.Choices[0].FinishReason)
+			}
+		}
+	}
+
+	return &ai.ChatResponse{
+		Content:      content.String(),
+		FinishReason: finishReason,
+	}, nil
+}

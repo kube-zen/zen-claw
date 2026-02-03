@@ -33,6 +33,13 @@ func newToolsCmd() *cobra.Command {
 				// Preview (diff before write)
 				agent.NewPreviewWriteTool("."),
 				agent.NewPreviewEditTool("."),
+				// Web tools
+				agent.NewWebSearchTool(""), // API key from config
+				agent.NewWebFetchTool(),
+				// Process management
+				agent.NewProcessTool("."),
+				// Multi-file patches
+				agent.NewApplyPatchTool("."),
 			}
 
 			fmt.Println("Available Tools:")

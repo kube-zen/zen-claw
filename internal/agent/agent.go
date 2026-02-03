@@ -16,6 +16,8 @@ import (
 // This abstracts away whether we call AI directly or through gateway
 type AICaller interface {
 	Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error)
+	// ChatStream sends tokens to callback as they arrive (optional)
+	ChatStream(ctx context.Context, req ai.ChatRequest, callback ai.StreamCallback) (*ai.ChatResponse, error)
 }
 
 // ToolResult represents the result of a tool execution
@@ -44,6 +46,7 @@ type Agent struct {
 	maxSteps         int
 	currentModel     string
 	progressCallback ProgressCallback
+	streamCallback   ai.StreamCallback // Token-by-token streaming
 }
 
 // AgentEvent represents a progress event during agent execution (deprecated, use ProgressEvent)
@@ -73,6 +76,11 @@ func NewAgent(aiCaller AICaller, tools []Tool, maxSteps int) *Agent {
 // SetProgressCallback sets a callback for progress events
 func (a *Agent) SetProgressCallback(cb ProgressCallback) {
 	a.progressCallback = cb
+}
+
+// SetStreamCallback sets a callback for token-by-token streaming
+func (a *Agent) SetStreamCallback(cb ai.StreamCallback) {
+	a.streamCallback = cb
 }
 
 // emitProgress sends a progress event if callback is set
@@ -332,7 +340,17 @@ func (a *Agent) getAIResponse(ctx context.Context, session *Session) (*ai.ChatRe
 	stepCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	resp, err := a.aiCaller.Chat(stepCtx, req)
+	var resp *ai.ChatResponse
+	var err error
+
+	// Use streaming if callback is set and no tools (tool calls can't stream)
+	if a.streamCallback != nil && len(toolDefs) == 0 {
+		req.Stream = true
+		resp, err = a.aiCaller.ChatStream(stepCtx, req, a.streamCallback)
+	} else {
+		resp, err = a.aiCaller.Chat(stepCtx, req)
+	}
+
 	if err != nil {
 		// Check if it's a context deadline exceeded error
 		if ctx.Err() == context.DeadlineExceeded || stepCtx.Err() == context.DeadlineExceeded {

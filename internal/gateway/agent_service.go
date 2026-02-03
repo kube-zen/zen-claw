@@ -32,6 +32,14 @@ func (c *GatewayAICaller) Chat(ctx context.Context, req ai.ChatRequest) (*ai.Cha
 	return c.aiRouter.Chat(ctx, req, preferredProvider)
 }
 
+func (c *GatewayAICaller) ChatStream(ctx context.Context, req ai.ChatRequest, callback ai.StreamCallback) (*ai.ChatResponse, error) {
+	preferredProvider := c.provider
+	if c.model != "" {
+		req.Model = c.model
+	}
+	return c.aiRouter.ChatStream(ctx, req, preferredProvider, callback)
+}
+
 // AgentService manages agent sessions and tool execution via gateway
 type AgentService struct {
 	config           *config.Config
@@ -79,6 +87,13 @@ func NewAgentService(cfg *config.Config) *AgentService {
 		// Preview (diff before write)
 		agent.NewPreviewWriteTool(""), // Preview write changes
 		agent.NewPreviewEditTool(""),  // Preview edit changes
+		// Web tools
+		agent.NewWebSearchTool(cfg.GetBraveAPIKey()), // Web search (Brave)
+		agent.NewWebFetchTool(),                      // Fetch URL content
+		// Process management
+		agent.NewProcessTool(""), // Background process management
+		// Multi-file patches
+		agent.NewApplyPatchTool(""), // Apply structured patches
 	}
 
 	return &AgentService{

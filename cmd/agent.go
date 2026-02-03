@@ -21,6 +21,7 @@ func newAgentCmd() *cobra.Command {
 	var maxSteps int
 	var verbose bool
 	var useWebSocket bool
+	var streamTokens bool
 
 	cmd := &cobra.Command{
 		Use:   "agent",
@@ -54,7 +55,7 @@ Multi-AI modes (separate commands):
 			if len(args) > 0 {
 				task = args[0]
 			}
-			runAgent(task, model, provider, workingDir, sessionID, showProgress, maxSteps, verbose, useWebSocket)
+			runAgent(task, model, provider, workingDir, sessionID, showProgress, maxSteps, verbose, useWebSocket, streamTokens)
 		},
 	}
 
@@ -66,16 +67,18 @@ Multi-AI modes (separate commands):
 	cmd.Flags().IntVar(&maxSteps, "max-steps", 100, "Maximum tool execution steps (default 100 for complex tasks)")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Enable verbose output for debugging")
 	cmd.Flags().BoolVar(&useWebSocket, "ws", false, "Use WebSocket instead of SSE streaming")
+	cmd.Flags().BoolVar(&streamTokens, "stream", false, "Stream AI response token-by-token")
 
 	return cmd
 }
 
-func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool, useWebSocket bool) {
+func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool, useWebSocket bool, streamTokens bool) {
 	// Interactive mode if no task provided
 	if task == "" {
-		runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID, showProgress, maxSteps, verbose, useWebSocket)
+		runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID, showProgress, maxSteps, verbose, useWebSocket, streamTokens)
 		return
 	}
+	_ = streamTokens // TODO: wire streaming through gateway SSE
 
 	if verbose {
 		fmt.Println("🔧 Verbose mode enabled")
@@ -214,7 +217,8 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 }
 
 // runInteractiveMode runs the agent in interactive mode
-func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool, useWebSocket bool) {
+func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool, useWebSocket bool, streamTokens bool) {
+	_ = streamTokens // TODO: wire token streaming through gateway
 	fmt.Println("🚀 Zen Agent")
 	if useWebSocket {
 		fmt.Println("(WebSocket mode)")
