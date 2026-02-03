@@ -275,9 +275,12 @@ zen-claw completion fish | source
 - [x] **Token usage tracking** - `/stats` command shows cost per session
 - [x] **Git tools** - Built-in git_status, git_diff, git_add, git_commit, git_push, git_log
 - [x] **Diff preview** - preview_write/preview_edit show changes before modifying files
+- [x] **Parallel tool execution** - Read-only tools run concurrently (2-5x speedup)
 
 ### Short Term (Next)
-- [ ] **Parallel tool execution** - Execute independent tools concurrently (2-5x speedup)
+
+- [ ] **MCP protocol support** - Integrate Model Context Protocol tools
+- [ ] **Circuit breaker** - Provider health tracking, auto-disable unhealthy
 
 ### Medium Term
 
