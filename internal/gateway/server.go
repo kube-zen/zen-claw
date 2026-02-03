@@ -27,8 +27,21 @@ type Server struct {
 	pidFile         string
 	agentService    *AgentService
 	rateLimiter     *ratelimit.Limiter
+	metrics         *Metrics
 	activeRequests  int64
 	shutdownTimeout time.Duration
+}
+
+// Metrics tracks server metrics
+type Metrics struct {
+	RequestsTotal   int64
+	RequestsChat    int64
+	RequestsStream  int64
+	RequestsWS      int64
+	Errors4xx       int64
+	Errors5xx       int64
+	RateLimitHits   int64
+	StartTime       time.Time
 }
 
 // NewServer creates a new gateway server
@@ -38,6 +51,7 @@ func NewServer(cfg *config.Config) *Server {
 		pidFile:         "/tmp/zen-claw-gateway.pid",
 		agentService:    NewAgentService(cfg),
 		rateLimiter:     ratelimit.NewLimiter(ratelimit.DefaultConfig()),
+		metrics:         &Metrics{StartTime: time.Now()},
 		shutdownTimeout: 30 * time.Second, // Allow in-flight requests to complete
 	}
 
@@ -50,12 +64,16 @@ func NewServer(cfg *config.Config) *Server {
 	mux.HandleFunc("/sessions/", srv.sessionHandler)
 	mux.HandleFunc("/preferences", srv.preferencesHandler)
 	mux.HandleFunc("/preferences/", srv.preferencesHandler)
-	mux.HandleFunc("/stats", srv.statsHandler) // Usage and cache stats
+	mux.HandleFunc("/stats", srv.statsHandler)     // Usage and cache stats
+	mux.HandleFunc("/metrics", srv.metricsHandler) // Prometheus-style metrics
 	mux.HandleFunc("/", srv.defaultHandler)
 
+	// Apply middleware: recovery -> logging -> handler
+	handler := Chain(mux, RecoveryMiddleware, LoggingMiddleware)
+
 	srv.server = &http.Server{
-		Addr:    ":8080",
-		Handler: mux,
+		Addr:    cfg.Gateway.GetAddr(),
+		Handler: handler,
 	}
 
 	return srv
@@ -228,6 +246,57 @@ func (s *Server) statsHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// metricsHandler returns Prometheus-style metrics
+func (s *Server) metricsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	uptime := time.Since(s.metrics.StartTime).Seconds()
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+
+	// Prometheus exposition format
+	fmt.Fprintf(w, "# HELP zenclaw_uptime_seconds Gateway uptime in seconds\n")
+	fmt.Fprintf(w, "# TYPE zenclaw_uptime_seconds gauge\n")
+	fmt.Fprintf(w, "zenclaw_uptime_seconds %.2f\n\n", uptime)
+
+	fmt.Fprintf(w, "# HELP zenclaw_requests_total Total HTTP requests\n")
+	fmt.Fprintf(w, "# TYPE zenclaw_requests_total counter\n")
+	fmt.Fprintf(w, "zenclaw_requests_total %d\n\n", atomic.LoadInt64(&s.metrics.RequestsTotal))
+
+	fmt.Fprintf(w, "# HELP zenclaw_requests_active Currently active requests\n")
+	fmt.Fprintf(w, "# TYPE zenclaw_requests_active gauge\n")
+	fmt.Fprintf(w, "zenclaw_requests_active %d\n\n", s.ActiveRequests())
+
+	fmt.Fprintf(w, "# HELP zenclaw_rate_limit_hits_total Rate limit rejections\n")
+	fmt.Fprintf(w, "# TYPE zenclaw_rate_limit_hits_total counter\n")
+	fmt.Fprintf(w, "zenclaw_rate_limit_hits_total %d\n\n", atomic.LoadInt64(&s.metrics.RateLimitHits))
+
+	fmt.Fprintf(w, "# HELP zenclaw_rate_limit_clients Active rate-limited clients\n")
+	fmt.Fprintf(w, "# TYPE zenclaw_rate_limit_clients gauge\n")
+	fmt.Fprintf(w, "zenclaw_rate_limit_clients %d\n\n", s.rateLimiter.ClientCount())
+
+	// Cache stats
+	hits, misses, size, hitRate := s.agentService.GetCacheStats()
+	fmt.Fprintf(w, "# HELP zenclaw_cache_hits_total Cache hits\n")
+	fmt.Fprintf(w, "# TYPE zenclaw_cache_hits_total counter\n")
+	fmt.Fprintf(w, "zenclaw_cache_hits_total %d\n\n", hits)
+
+	fmt.Fprintf(w, "# HELP zenclaw_cache_misses_total Cache misses\n")
+	fmt.Fprintf(w, "# TYPE zenclaw_cache_misses_total counter\n")
+	fmt.Fprintf(w, "zenclaw_cache_misses_total %d\n\n", misses)
+
+	fmt.Fprintf(w, "# HELP zenclaw_cache_size Current cache size\n")
+	fmt.Fprintf(w, "# TYPE zenclaw_cache_size gauge\n")
+	fmt.Fprintf(w, "zenclaw_cache_size %d\n\n", size)
+
+	fmt.Fprintf(w, "# HELP zenclaw_cache_hit_rate Cache hit rate\n")
+	fmt.Fprintf(w, "# TYPE zenclaw_cache_hit_rate gauge\n")
+	fmt.Fprintf(w, "zenclaw_cache_hit_rate %.4f\n", hitRate)
+}
+
 // getClientID extracts client identifier from request (IP + User-Agent hash)
 func getClientID(r *http.Request) string {
 	// Use X-Forwarded-For if behind proxy, otherwise RemoteAddr
@@ -247,10 +316,13 @@ func getClientID(r *http.Request) string {
 func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 	s.trackRequest()
 	defer s.untrackRequest()
+	atomic.AddInt64(&s.metrics.RequestsTotal, 1)
+	atomic.AddInt64(&s.metrics.RequestsChat, 1)
 
 	// Rate limit check
 	clientID := getClientID(r)
 	if !s.rateLimiter.Allow(clientID) {
+		atomic.AddInt64(&s.metrics.RateLimitHits, 1)
 		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 		return
 	}
@@ -465,10 +537,13 @@ func splitString(s string, sep rune) []string {
 func (s *Server) streamChatHandler(w http.ResponseWriter, r *http.Request) {
 	s.trackRequest()
 	defer s.untrackRequest()
+	atomic.AddInt64(&s.metrics.RequestsTotal, 1)
+	atomic.AddInt64(&s.metrics.RequestsStream, 1)
 
 	// Rate limit check
 	clientID := getClientID(r)
 	if !s.rateLimiter.Allow(clientID) {
+		atomic.AddInt64(&s.metrics.RateLimitHits, 1)
 		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 		return
 	}

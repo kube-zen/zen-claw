@@ -10,6 +10,7 @@ import (
 )
 
 type Config struct {
+	Gateway          GatewayConfig          `yaml:"gateway"`
 	Providers        ProvidersConfig        `yaml:"providers"`
 	Default          DefaultConfig          `yaml:"default"`
 	Workspace        WorkspaceConfig        `yaml:"workspace"`
@@ -172,6 +173,47 @@ type WorkspaceConfig struct {
 	Path string `yaml:"path"`
 }
 
+// GatewayConfig defines gateway server settings
+type GatewayConfig struct {
+	Host string `yaml:"host"` // Listen address (default: "")
+	Port int    `yaml:"port"` // Listen port (default: 8080)
+}
+
+// GetAddr returns the full listen address
+func (g *GatewayConfig) GetAddr() string {
+	port := g.Port
+	if port == 0 {
+		port = 8080
+	}
+	return fmt.Sprintf("%s:%d", g.Host, port)
+}
+
+// GetURL returns the full HTTP URL for the gateway
+func (g *GatewayConfig) GetURL() string {
+	port := g.Port
+	if port == 0 {
+		port = 8080
+	}
+	host := g.Host
+	if host == "" {
+		host = "localhost"
+	}
+	return fmt.Sprintf("http://%s:%d", host, port)
+}
+
+// GetWSURL returns the WebSocket URL for the gateway
+func (g *GatewayConfig) GetWSURL() string {
+	port := g.Port
+	if port == 0 {
+		port = 8080
+	}
+	host := g.Host
+	if host == "" {
+		host = "localhost"
+	}
+	return fmt.Sprintf("ws://%s:%d/ws", host, port)
+}
+
 // DefaultConfigPath returns the default config path
 func DefaultConfigPath() string {
 	home, err := os.UserHomeDir()
@@ -240,6 +282,10 @@ func NewDefaultConfig() *Config {
 	workspace := filepath.Join(home, ".zen", "zen-claw", "workspace")
 
 	return &Config{
+		Gateway: GatewayConfig{
+			Host: "",    // Listen on all interfaces
+			Port: 8080,  // Default port
+		},
 		Default: DefaultConfig{
 			Provider: "deepseek",
 			Model:    "deepseek-chat",
@@ -298,10 +344,10 @@ func NewDefaultConfig() *Config {
 			AnthropicCacheRetention: "short", // 5-minute cache for Anthropic
 			ToolRules: map[string]ToolRuleConfig{
 				"exec":    {MaxTokens: 4000, KeepRecent: 1, Aggressive: true},
-			"process": {MaxTokens: 4000, KeepRecent: 1, Aggressive: true},
+				"process": {MaxTokens: 4000, KeepRecent: 1, Aggressive: true},
+			},
 		},
-	},
-}
+	}
 }
 
 // ValidationError represents a configuration validation error

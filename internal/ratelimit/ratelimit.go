@@ -35,9 +35,9 @@ type Config struct {
 // DefaultConfig returns sensible defaults for rate limiting.
 func DefaultConfig() Config {
 	return Config{
-		RequestsPerSecond: 10,              // 10 req/s per client
-		BurstSize:         20,              // Allow bursts up to 20
-		CleanupInterval:   5 * time.Minute, // Cleanup every 5 min
+		RequestsPerSecond: 10,               // 10 req/s per client
+		BurstSize:         20,               // Allow bursts up to 20
+		CleanupInterval:   5 * time.Minute,  // Cleanup every 5 min
 		ClientTTL:         30 * time.Minute, // Remove after 30 min inactive
 	}
 }

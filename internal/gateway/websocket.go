@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -364,6 +365,8 @@ func (c *WSClient) sendError(id, message string) {
 func (s *Server) wsHandler(w http.ResponseWriter, r *http.Request) {
 	s.trackRequest()
 	defer s.untrackRequest()
+	atomic.AddInt64(&s.metrics.RequestsTotal, 1)
+	atomic.AddInt64(&s.metrics.RequestsWS, 1)
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
