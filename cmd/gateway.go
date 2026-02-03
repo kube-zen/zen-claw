@@ -16,9 +16,21 @@ import (
 )
 
 const (
-	pidFile     = "/tmp/zen-claw-gateway.pid"
-	gatewayPort = "8080"
+	pidFile = "/tmp/zen-claw-gateway.pid"
 )
+
+// getGatewayPort returns the configured gateway port
+func getGatewayPort() string {
+	cfg, err := config.LoadConfig("")
+	if err != nil {
+		return "8080" // Fallback
+	}
+	port := cfg.Gateway.Port
+	if port == 0 {
+		port = 8080
+	}
+	return strconv.Itoa(port)
+}
 
 func newGatewayCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -99,7 +111,7 @@ func runGatewayStop(cmd *cobra.Command, args []string) error {
 	}
 
 	// Method 2: Find process by port using lsof
-	out, err := exec.Command("lsof", "-ti", fmt.Sprintf("tcp:%s", gatewayPort)).Output()
+	out, err := exec.Command("lsof", "-ti", fmt.Sprintf("tcp:%s", getGatewayPort())).Output()
 	if err == nil && len(out) > 0 {
 		pids := strings.Fields(strings.TrimSpace(string(out)))
 		for _, pidStr := range pids {
@@ -116,14 +128,14 @@ func runGatewayStop(cmd *cobra.Command, args []string) error {
 	}
 
 	// Method 3: Check if port is actually in use
-	conn, err := net.DialTimeout("tcp", "localhost:"+gatewayPort, time.Second)
+	conn, err := net.DialTimeout("tcp", "localhost:"+getGatewayPort(), time.Second)
 	if err != nil {
 		fmt.Println("Gateway is not running")
 		return nil
 	}
 	conn.Close()
 
-	return fmt.Errorf("could not stop gateway - process found on port %s but unable to kill", gatewayPort)
+	return fmt.Errorf("could not stop gateway - process found on port %s but unable to kill", getGatewayPort())
 }
 
 func runGatewayRestart(cmd *cobra.Command, args []string) error {
@@ -134,7 +146,7 @@ func runGatewayRestart(cmd *cobra.Command, args []string) error {
 
 	// Wait for port to be free
 	for i := 0; i < 10; i++ {
-		conn, err := net.DialTimeout("tcp", "localhost:"+gatewayPort, 100*time.Millisecond)
+		conn, err := net.DialTimeout("tcp", "localhost:"+getGatewayPort(), 100*time.Millisecond)
 		if err != nil {
 			break // Port is free
 		}
@@ -148,7 +160,7 @@ func runGatewayRestart(cmd *cobra.Command, args []string) error {
 
 func runGatewayStatus(cmd *cobra.Command, args []string) error {
 	// Check if port is in use
-	conn, err := net.DialTimeout("tcp", "localhost:"+gatewayPort, time.Second)
+	conn, err := net.DialTimeout("tcp", "localhost:"+getGatewayPort(), time.Second)
 	if err != nil {
 		fmt.Println("Gateway status: stopped")
 		return nil
@@ -156,7 +168,7 @@ func runGatewayStatus(cmd *cobra.Command, args []string) error {
 	conn.Close()
 
 	fmt.Println("Gateway status: running")
-	fmt.Printf("Listening on: :%s\n", gatewayPort)
+	fmt.Printf("Listening on: :%s\n", getGatewayPort())
 
 	// Check PID file
 	if pidData, err := os.ReadFile(pidFile); err == nil {
@@ -165,7 +177,7 @@ func runGatewayStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	// Try to get health info
-	client := NewGatewayClient("http://localhost:" + gatewayPort)
+	client := NewGatewayClient("http://localhost:" + getGatewayPort())
 	if err := client.HealthCheck(); err == nil {
 		fmt.Println("Health: OK")
 	}

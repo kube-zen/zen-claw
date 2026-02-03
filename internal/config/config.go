@@ -15,6 +15,7 @@ type Config struct {
 	Default          DefaultConfig          `yaml:"default"`
 	Workspace        WorkspaceConfig        `yaml:"workspace"`
 	Sessions         SessionsConfig         `yaml:"sessions"`
+	Plugins          PluginsConfig          `yaml:"plugins"`
 	Consensus        ConsensusConfig        `yaml:"consensus"`
 	Factory          FactoryConfig          `yaml:"factory"`
 	Preferences      PreferencesConfig      `yaml:"preferences"`
@@ -22,6 +23,12 @@ type Config struct {
 	MCP              MCPConfig              `yaml:"mcp"`
 	Routing          RoutingConfig          `yaml:"routing"`
 	CostOptimization CostOptimizationConfig `yaml:"cost_optimization"`
+}
+
+// PluginsConfig configures the plugin system
+type PluginsConfig struct {
+	Dir     string `yaml:"dir"`     // Plugin directory (default ~/.zen/zen-claw/plugins)
+	Enabled bool   `yaml:"enabled"` // Enable plugins (default true)
 }
 
 // MCPConfig configures Model Context Protocol servers
@@ -511,6 +518,16 @@ func (c *Config) GetMaxSessions() int {
 // GetSessionDBPath returns the session database path
 func (c *Config) GetSessionDBPath() string {
 	return c.Sessions.DBPath // Empty means use default
+}
+
+// GetPluginDir returns the plugin directory path
+func (c *Config) GetPluginDir() string {
+	if c.Plugins.Dir != "" {
+		return c.Plugins.Dir
+	}
+	// Default: ~/.zen/zen-claw/plugins
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".zen", "zen-claw", "plugins")
 }
 
 // GetAPIKey returns the API key for a provider from config or environment

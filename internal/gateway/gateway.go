@@ -41,7 +41,7 @@ func NewGateway(cfg *config.Config) *Gateway {
 	mux.HandleFunc("/", gw.defaultHandler)
 
 	gw.server = &http.Server{
-		Addr:    ":8080",
+		Addr:    cfg.Gateway.GetAddr(),
 		Handler: mux,
 	}
 

@@ -100,7 +100,7 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 	fmt.Printf("Working directory: %s\n", workingDir)
 
 	// Create gateway client
-	client := NewGatewayClient("http://localhost:8080")
+	client := NewGatewayClient(getGatewayURL())
 
 	// Check if gateway is running
 	if err := client.HealthCheck(); err != nil {
@@ -200,7 +200,7 @@ func runAgentWebSocket(task, modelFlag, providerFlag, workingDir, sessionID stri
 	fmt.Printf("Working directory: %s\n", workingDir)
 
 	// Connect via WebSocket
-	wsURL := "ws://localhost:8080/ws"
+	wsURL := getGatewayWSURL()
 	if verbose {
 		fmt.Printf("Connecting to %s...\n", wsURL)
 	}

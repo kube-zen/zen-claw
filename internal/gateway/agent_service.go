@@ -12,6 +12,7 @@ import (
 	"github.com/neves/zen-claw/internal/ai"
 	"github.com/neves/zen-claw/internal/config"
 	"github.com/neves/zen-claw/internal/mcp"
+	"github.com/neves/zen-claw/internal/plugins"
 	"github.com/neves/zen-claw/internal/types"
 )
 
@@ -108,6 +109,17 @@ func NewAgentService(cfg *config.Config) *AgentService {
 		agent.NewProcessTool(""), // Background process management
 		// Multi-file patches
 		agent.NewApplyPatchTool(""), // Apply structured patches
+	}
+
+	// Load plugins from ~/.zen/zen-claw/plugins/
+	pluginLoader := plugins.NewLoader(cfg.GetPluginDir())
+	if err := pluginLoader.LoadAll(); err != nil {
+		log.Printf("Warning: Failed to load plugins: %v", err)
+	}
+	if pluginLoader.Count() > 0 {
+		pluginTools := pluginLoader.GetTools()
+		tools = append(tools, pluginTools...)
+		log.Printf("[Plugins] Added %d plugin tools", len(pluginTools))
 	}
 
 	// Initialize MCP client

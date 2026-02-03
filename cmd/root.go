@@ -47,6 +47,7 @@ func init() {
 	rootCmd.AddCommand(newMCPCmd())
 	rootCmd.AddCommand(newSessionsCmd())
 	rootCmd.AddCommand(newSessionCmd())
+	rootCmd.AddCommand(newPluginsCmd())
 	rootCmd.AddCommand(newSlackCmd())
 	rootCmd.AddCommand(newToolsCmd())
 }

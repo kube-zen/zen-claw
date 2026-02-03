@@ -37,7 +37,7 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 	thinkingLevel := "" // off, low, medium, high (empty = model default)
 
 	// Create gateway client
-	client := NewGatewayClient("http://localhost:8080")
+	client := NewGatewayClient(getGatewayURL())
 
 	// Check if gateway is running
 	if err := client.HealthCheck(); err != nil {

@@ -4,8 +4,27 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/neves/zen-claw/internal/config"
 	"github.com/neves/zen-claw/internal/providers"
 )
+
+// getGatewayURL returns the gateway HTTP URL from config
+func getGatewayURL() string {
+	cfg, err := config.LoadConfig("")
+	if err != nil {
+		return "http://localhost:8080" // Fallback
+	}
+	return cfg.Gateway.GetURL()
+}
+
+// getGatewayWSURL returns the gateway WebSocket URL from config
+func getGatewayWSURL() string {
+	cfg, err := config.LoadConfig("")
+	if err != nil {
+		return "ws://localhost:8080/ws" // Fallback
+	}
+	return cfg.Gateway.GetWSURL()
+}
 
 // inferProviderFromModel uses centralized provider detection
 func inferProviderFromModel(modelName string) string {
