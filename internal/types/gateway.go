@@ -11,6 +11,7 @@ type ChatRequest struct {
 	Model         string `json:"model,omitempty"`
 	MaxSteps      int    `json:"max_steps,omitempty"`
 	ThinkingLevel string `json:"thinking_level,omitempty"` // off, low, medium, high
+	Stream        bool   `json:"stream,omitempty"`         // Enable token-by-token streaming
 }
 
 // ChatResponse represents a chat response from the gateway.

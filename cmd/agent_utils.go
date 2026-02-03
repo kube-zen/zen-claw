@@ -63,6 +63,9 @@ func displayProgressEvent(event ProgressEvent) {
 		fmt.Printf("    %s\n", event.Message)
 	case "tool_result":
 		// Skip detailed results - tool_call already shows summary
+	case "token":
+		// Stream token without newline for real-time output
+		fmt.Print(event.Message)
 	case "complete":
 		fmt.Printf("\n✅ Done (%d steps)\n", event.Step)
 	case "error":

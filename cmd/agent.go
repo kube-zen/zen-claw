@@ -75,7 +75,7 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 		runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID, showProgress, maxSteps, verbose, useWebSocket, streamTokens)
 		return
 	}
-	_ = streamTokens // TODO: wire streaming through gateway SSE
+	// Token streaming is passed in the request below
 
 	if verbose {
 		fmt.Println("🔧 Verbose mode enabled")
@@ -137,6 +137,7 @@ func runAgent(task, modelFlag, providerFlag, workingDir, sessionID string, showP
 		Provider:   providerName,
 		Model:      modelName,
 		MaxSteps:   maxSteps,
+		Stream:     streamTokens,
 	}
 
 	fmt.Println()

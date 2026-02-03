@@ -239,6 +239,16 @@ func (s *AgentService) ChatWithProgress(ctx context.Context, req ChatRequest, pr
 		})
 	}
 
+	// Set stream callback for token-by-token streaming
+	if req.Stream && progressCb != nil {
+		agentInstance.SetStreamCallback(func(token string) {
+			progressCb(map[string]interface{}{
+				"type":    "token",
+				"message": token,
+			})
+		})
+	}
+
 	// IMPORTANT: Use a detached context for agent execution
 	// The HTTP request context has a shorter timeout (5 min from client)
 	// but complex tasks may need 30+ minutes to complete.

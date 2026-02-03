@@ -14,7 +14,7 @@ import (
 
 // runInteractiveMode runs the agent in interactive mode
 func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, showProgress bool, maxSteps int, verbose bool, useWebSocket bool, streamTokens bool) {
-	_ = streamTokens // TODO: wire token streaming through gateway
+	// streamTokens is passed in requests below
 	fmt.Println("🚀 Zen Agent")
 	if useWebSocket {
 		fmt.Println("(WebSocket mode)")
@@ -204,6 +204,7 @@ func runInteractiveMode(modelFlag, providerFlag, workingDir, sessionID string, s
 			Model:         modelName,
 			MaxSteps:      maxSteps,
 			ThinkingLevel: thinkingLevel,
+			Stream:        streamTokens,
 		}
 
 		resp, err := client.SendWithProgress(req, func(event ProgressEvent) {
